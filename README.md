@@ -121,11 +121,21 @@ By default, the advisor uses the same model as the main agent. Override at
 runtime:
 
 ```
-/advisor model mimo-v2.5              # different model, same provider
+/advisor model                      # interactive selector: pick provider + model
+/advisor model mimo-v2.5            # different model, same provider (direct name)
 /advisor provider custom:opencode-go  # different provider
 /advisor config model deepseek-v4-pro  # alias for /advisor model
 /advisor config provider custom:deepseek
 ```
+
+**Interactive selector** (`/advisor model` with no arguments): opens the same
+curses-based provider+model picker that `hermes model` uses. Select a provider,
+then a model — the result is applied to the advisor's override while your primary
+model config stays untouched.
+
+The interactive selector runs `hermes model` in its own pseudo-terminal (PTY)
+so its curses UI doesn't conflict with Hermes' prompt_toolkit terminal state.
+This means it works reliably on iTerm2 and other terminal emulators.
 
 Model and provider are independently settable. Set only `model` to use a
 different model on the same provider. Set both to route to a completely
@@ -190,6 +200,23 @@ rules, recurring pitfalls — without touching the main agent's prompt.
     enabled:
       - advisor
   ```
+
+## Troubleshooting
+
+### Advisor stuck on an old issue
+
+If the advisor keeps flagging something you've already addressed (like a stale
+`[BLOCKER]` or `[CONCERN]` that won't clear), the held notes need resetting.
+Do the the "IT Crowd" fixit:
+
+```
+/advisor off
+/advisor on
+```
+
+This clears all held notes and starts fresh. Concerns and blockers are stored in 
+`state.json` and survive agent restarts, so stale items can accumulate across 
+sessions. The toggle is the surest reset.
 
 ## License
 
