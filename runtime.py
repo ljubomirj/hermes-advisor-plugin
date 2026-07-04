@@ -3,7 +3,9 @@
 import json
 import logging
 import os
+import pty
 import sys
+import termios
 from pathlib import Path
 
 from .advisor_prompt import ADVISOR_SYSTEM_PROMPT
@@ -222,7 +224,7 @@ class AdvisorRuntime:
                                 tc_name = block.get("name", "?")
                                 tc_args = block.get("arguments", {})
                                 tc_str = json.dumps(tc_args, indent=1)[:200]
-                                tool_calls.append(f"→ tool `{tc_name}`: {tc_str}")
+                                tool_calls.append(f"\u2192 tool `{tc_name}`: {tc_str}")
             elif role == "tool":
                 if isinstance(content, list):
                     text = " ".join(
@@ -232,7 +234,7 @@ class AdvisorRuntime:
                 else:
                     text = str(content)[:300]
                 if text.strip():
-                    tool_results.append(f"→ result: {text.strip()[:200]}")
+                    tool_results.append(f"\u2192 result: {text.strip()[:200]}")
 
         if tool_calls:
             parts.append("#### Tool calls\n\n" + "\n".join(tool_calls))
@@ -261,25 +263,28 @@ class AdvisorRuntime:
             lines.append(f"{a.tag()} {a.note}")
 
         advisory_text = "\n".join(lines)
-        full_msg = f"◆ Advisor review\n\n{advisory_text}"
+        full_msg = f"\u25c6 Advisor review\n\n{advisory_text}"
 
         ok = self.ctx.inject_message(full_msg, role="user")
         if ok:
             logger.info("Advisor: injected %d item(s) into conversation", len(advice_list))
         else:
             logger.info(
-                "Advisor: %d item(s) — not in CLI mode, advice stored in state.",
+                "Advisor: %d item(s) \u2014 not in CLI mode, advice stored in state.",
                 len(advice_list),
             )
 
     # ── interactive model/provider selector ──────────────────────────────
 
     def _interactive_select(self, target: str) -> str:
-        """Open the Hermes interactive model/provider selector.
+        """Open the Hermes interactive model/provider selector via
+        ``hermes model`` in a subprocess PTY.
 
-        Uses the same ``select_provider_and_model()`` that ``hermes model``
-        and the setup wizard use.  Captures the user's selection and sets
-        the advisor's model/provider override.
+        Spawns the real ``hermes model`` command in its own pseudo-terminal
+        so its curses UI doesn't conflict with prompt_toolkit's terminal
+        state inside the running CLI session.  Captures the user's
+        selection from the config diff and applies it to the advisor's
+        model/provider override, then restores the primary config.
 
         ``target`` is ``"model"`` or ``"provider"`` — controls which
         field(s) to write from the picker result.
@@ -291,8 +296,12 @@ class AdvisorRuntime:
             )
 
         from hermes_cli.config import load_config
+        from hermes_constants import get_hermes_home
 
-        # Snapshot the current model config so we can detect change
+        # Snapshot the original config.yaml so we can restore it after
+        config_path = get_hermes_home() / "config.yaml"
+        original_config = config_path.read_text() if config_path.exists() else ""
+
         config_before = load_config()
         old_model = ""
         old_provider = ""
@@ -300,20 +309,45 @@ class AdvisorRuntime:
             old_model = config_before["model"].get("default", "")
             old_provider = config_before["model"].get("provider", "")
 
+        # Run hermes model in a subprocess with its own PTY.
+        # The child process inherits HERMES_HOME so it reads/writes the
+        # correct profile config.  pty.spawn() relays terminal I/O
+        # transparently — the user sees the curses picker, interacts
+        # normally, and when it exits the parent's terminal state is
+        # preserved (no prompt_toolkit conflict).
         try:
-            from hermes_cli.main import select_provider_and_model
-            select_provider_and_model()
+            exit_code = pty.spawn(["hermes", "model"])
+        except FileNotFoundError:
+            return "Could not find `hermes` in PATH. Is the venv active?"
         except Exception as e:
-            logger.warning("Advisor %s picker failed: %s", target, e)
-            return f"Error: {e}"
+            logger.warning("Advisor %s subprocess failed: %s", target, e)
+            return f"Error launching model selector: {e}"
 
-        # Read what the selector wrote to the global config
+        if exit_code != 0:
+            logger.info("Advisor model picker exited with code %d", exit_code)
+            return "Model selector cancelled or failed."
+
+        # Read what changed in the config
         config_after = load_config()
         new_model = ""
         new_provider = ""
         if isinstance(config_after.get("model"), dict):
             new_model = config_after["model"].get("default", "")
             new_provider = config_after["model"].get("provider", "")
+
+        # Restore the original config so the primary model is unchanged
+        if original_config:
+            try:
+                config_path.write_text(original_config)
+            except Exception as e:
+                logger.warning("Advisor: failed to restore config: %s", e)
+
+        # Flush stdin buffer — the subprocess's curses may have left
+        # stray escape-sequence bytes in the OS input buffer
+        try:
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except Exception:
+            pass
 
         if target == "model":
             if not new_model or new_model == old_model:
