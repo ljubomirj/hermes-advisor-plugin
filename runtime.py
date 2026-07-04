@@ -349,6 +349,18 @@ class AdvisorRuntime:
         except Exception:
             pass
 
+        # Flush the output buffer and emit a form feed to prompt_toolkit.
+        # The PTY subprocess writes directly to the terminal, so after it
+        # exits prompt_toolkit's internal screen state is stale.  \x0c
+        # (Ctrl+L / form feed) is the standard signal for prompt_toolkit to
+        # redraw the entire application — same thing the user does when they
+        # hit Ctrl+L manually, but emitted automatically here.
+        try:
+            sys.stdout.write('\x0c')
+            sys.stdout.flush()
+        except Exception:
+            pass
+
         if target == "model":
             if not new_model or new_model == old_model:
                 return "Advisor model unchanged."
