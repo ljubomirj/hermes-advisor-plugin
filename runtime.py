@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 from .advisor_prompt import ADVISOR_SYSTEM_PROMPT
@@ -271,6 +272,66 @@ class AdvisorRuntime:
                 len(advice_list),
             )
 
+    # ── interactive model/provider selector ──────────────────────────────
+
+    def _interactive_select(self, target: str) -> str:
+        """Open the Hermes interactive model/provider selector.
+
+        Uses the same ``select_provider_and_model()`` that ``hermes model``
+        and the setup wizard use.  Captures the user's selection and sets
+        the advisor's model/provider override.
+
+        ``target`` is ``"model"`` or ``"provider"`` — controls which
+        field(s) to write from the picker result.
+        """
+        if not sys.stdin.isatty():
+            return (
+                f"Interactive {target} picker requires a terminal.\n"
+                f"Use /advisor {target} <name> to set directly."
+            )
+
+        from hermes_cli.config import load_config
+
+        # Snapshot the current model config so we can detect change
+        config_before = load_config()
+        old_model = ""
+        old_provider = ""
+        if isinstance(config_before.get("model"), dict):
+            old_model = config_before["model"].get("default", "")
+            old_provider = config_before["model"].get("provider", "")
+
+        try:
+            from hermes_cli.main import select_provider_and_model
+            select_provider_and_model()
+        except Exception as e:
+            logger.warning("Advisor %s picker failed: %s", target, e)
+            return f"Error: {e}"
+
+        # Read what the selector wrote to the global config
+        config_after = load_config()
+        new_model = ""
+        new_provider = ""
+        if isinstance(config_after.get("model"), dict):
+            new_model = config_after["model"].get("default", "")
+            new_provider = config_after["model"].get("provider", "")
+
+        if target == "model":
+            if not new_model or new_model == old_model:
+                return "Advisor model unchanged."
+            self.state.model = new_model
+            if new_provider and new_provider != old_provider:
+                self.state.provider = new_provider
+            self._save_state()
+            prov_str = f" ({new_provider})" if new_provider else ""
+            return f"Advisor model set to: {new_model}{prov_str}"
+        else:
+            # target == "provider"
+            if not new_provider or new_provider == old_provider:
+                return "Advisor provider unchanged."
+            self.state.provider = new_provider
+            self._save_state()
+            return f"Advisor provider set to: {new_provider}"
+
     # ── slash command ─────────────────────────────────────────────────────
 
     def handle_command(self, args: str) -> str:
@@ -304,6 +365,10 @@ class AdvisorRuntime:
             self._save_state()
             return "Advisor off."
 
+        # ── model (no args) — open interactive selector ──
+        if arg == "model":
+            return self._interactive_select("model")
+
         # ── model <name> ──
         if arg.startswith("model "):
             model_name = arg[6:].strip()
@@ -312,6 +377,10 @@ class AdvisorRuntime:
             self.state.model = model_name
             self._save_state()
             return f"Advisor model set to: {model_name}"
+
+        # ── provider (no args) — open interactive selector ──
+        if arg == "provider":
+            return self._interactive_select("provider")
 
         # ── provider <name> ──
         if arg.startswith("provider "):
@@ -415,6 +484,8 @@ class AdvisorRuntime:
             except Exception as e:
                 lines.append(f"Error reading model catalog: {e}")
             return "\n".join(lines)
+
+        # ── test — inject a test advice message ──
         if arg.startswith("test"):
             import re
             m = re.match(r"^test\s+(nit|concern|blocker)\s+([\s\S]+)$", arg, re.IGNORECASE)
@@ -425,4 +496,4 @@ class AdvisorRuntime:
                 return f"Advisor: delivered test {sev.value}."
             return "Usage: /advisor test <nit|concern|blocker> <note>"
 
-        return "Usage: /advisor [on|off|status|config|model|provider|providers|models]"
+        return "Usage: /advisor [on|off|status|config|model|provider|providers|models|test]"
