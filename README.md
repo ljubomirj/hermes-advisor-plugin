@@ -151,6 +151,13 @@ Check what's available:
 
 Model/provider settings persist in `state.json` in the plugin directory.
 
+**Real-world setup (author's daily driver):** the primary agent runs
+**DeepSeek-V4-Flash** with `thinking=high` and the advisor runs
+**MiMo-V2.5** — two mid-sized (~300B params) fast models, both routed
+through the same OpenCode Go subscription. Set with `/advisor model mimo-v2.5`
+after configuring `custom:opencode-go` as a provider in Hermes. This pairing
+gives responsive primary work with a capable second opinion on every turn.
+
 ### Project guidance (WATCHDOG.md)
 
 If a `WATCHDOG.md` file exists in the working directory, its contents are
@@ -229,5 +236,8 @@ Same as pi-omplike-advisor and the original oh-my-pi advisor extension.
 - **Petr Baudis (pasky)** — author of [pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor),
   which inspired this port. The advisor system prompt, severity model, and
   hold-and-reconfirm pattern are directly adapted from that work.
-- **oh-my-pi** — the original advisor concept, built for the pi agent ecosystem.
+- **oh-my-pi** — the original advisor concept, built for the pi agent ecosystem
+  by [Can Bölük (can1357)](https://github.com/can1357).
 - Author of this Hermes port: **Ljubomir Josifovski**.
+- Built with assistance from agents **Hermes**, **pi**, **Codex** using models
+  **DeepSeek-V4-Flash**, **GPT-5.5**.
