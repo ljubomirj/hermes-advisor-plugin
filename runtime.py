@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import threading
+from contextvars import copy_context
 from pathlib import Path
 
 from .advisor_prompt import ADVISOR_SYSTEM_PROMPT
@@ -198,6 +199,7 @@ class AdvisorRuntime:
                 assistant_response=assistant_response or "",
                 conversation_history=list(conversation_history),
                 model=model or "",
+                context=copy_context(),
             )
         )
 
@@ -242,7 +244,10 @@ class AdvisorRuntime:
             try:
                 if turn is None:
                     return
-                self._review_turn(turn)
+                if getattr(turn, "context", None) is not None:
+                    turn.context.run(self._review_turn, turn)
+                else:
+                    self._review_turn(turn)
             finally:
                 with self._queue_lock:
                     self._review_queue.task_done()
@@ -266,7 +271,7 @@ class AdvisorRuntime:
         if not advice_list:
             logger.debug("Advisor: nothing to deliver for turn %s", turn.turn_id)
             return
-        self._deliver_advice(advice_list)
+        self._deliver_advice(advice_list, session_id=turn.session_id)
 
     def on_session_finalize(self, **_kwargs) -> None:
         """Give an in-flight review a small, fixed shutdown grace period."""
@@ -465,11 +470,10 @@ class AdvisorRuntime:
 
     # ── deliver advice back to the conversation ──────────────────────────
 
-    def _deliver_advice(self, advice_list: list[Advice]):
+    def _deliver_advice(self, advice_list: list[Advice], session_id: str = ""):
         """Inject advice into the active conversation.
 
-        Uses ctx.inject_message() (CLI only). In gateway mode, falls back
-        to logging so the user can check /advisor status.
+        Uses ctx.inject_message(). Delivers to CLI, Desktop/TUI, or Gateway.
         """
         if not advice_list:
             return
@@ -481,12 +485,12 @@ class AdvisorRuntime:
         advisory_text = "\n".join(lines)
         full_msg = f"\u25c6 Advisor review\n\n{advisory_text}"
 
-        ok = self.ctx.inject_message(full_msg, role="user")
+        ok = self.ctx.inject_message(full_msg, role="user", session_key=session_id or None)
         if ok:
             logger.info("Advisor: injected %d item(s) into conversation", len(advice_list))
         else:
             logger.info(
-                "Advisor: %d item(s) not injected because CLI delivery is unavailable.",
+                "Advisor: %d item(s) not injected (delivery unavailable).",
                 len(advice_list),
             )
 
