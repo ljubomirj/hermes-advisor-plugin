@@ -13,6 +13,8 @@ from typing import Any
 
 from .advisor_prompt import ADVISOR_SYSTEM_PROMPT
 from .models import AdvisorState, Advice, Severity, TurnDelta
+from .ledger import audit_draft_ledger
+from .prober import run_active_probes_for_draft
 
 logger = logging.getLogger(__name__)
 
@@ -733,6 +735,25 @@ class AdvisorRuntime:
         cwd = self._session_cwd(session_id) or os.getcwd()
         guidelines = _find_guidelines(cwd)
 
+        # Active autonomous probing (read-only verification of verifiable claims)
+        active_probes = run_active_probes_for_draft(draft, cwd)
+        probe_notes = []
+        for p in active_probes:
+            probe_notes.append(p.format_evidence())
+            if p.success:
+                events.append({
+                    "tool": "active_probe",
+                    "args": p.command,
+                    "result": p.output,
+                })
+
+        combined_evidence = f"{evidence}\n" + "\n".join(probe_notes) if probe_notes else evidence
+
+        # Deterministic ledger pre-flight verification
+        ledger_verdict = audit_draft_ledger(draft, events, combined_evidence, claims=claims)
+        if not ledger_verdict.passed:
+            return ledger_verdict.to_dict()
+
         system_prompt = (
             "You are an objective auditor and senior coworker verifying an AI agent's actions and draft response.\n"
             "You have access to the full session context: user directives, recent conversation history, and the raw tool execution events of this turn.\n\n"
@@ -749,7 +770,7 @@ class AdvisorRuntime:
             "   - If a claim lacks evidence or was not checked, instruct the agent to RUN THE TOOL to verify it, or DROP the claim entirely.\n"
             "   - Never demand that the agent write a defensive paragraph admitting it didn't verify something. Action comes first.\n"
             "6. If the draft is sound, truthful, answers the user's ask, and is written naturally for a human, APPROVE.\n\n"
-            'Respond in JSON format: {"status": "approved" | "rejected", "reason": "..."}'
+            'Respond in JSON format: {"status": "approved" | "rejected", "reason": "...", "missing_checks": [...], "unbacked_claims": [...]}'
         )
 
         user_prompt_parts = []
@@ -793,8 +814,8 @@ class AdvisorRuntime:
 
         if draft:
             user_prompt_parts.append(f"### Proposed User-Facing Response (Draft):\n{draft}")
-        if evidence:
-            user_prompt_parts.append(f"### Technical Verification Evidence (Internal Notes for Auditor):\n{_redact_secrets(str(evidence))}")
+        if combined_evidence:
+            user_prompt_parts.append(f"### Technical Verification Evidence (Internal Notes for Auditor):\n{_redact_secrets(str(combined_evidence))}")
         if claims:
             if isinstance(claims, str):
                 claims = [claims]
