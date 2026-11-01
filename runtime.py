@@ -657,8 +657,6 @@ class AdvisorRuntime:
                 "args": clean_args,
                 "result": res_str,
             })
-            if len(self._turn_tool_events[sess]) > 50:
-                self._turn_tool_events[sess] = self._turn_tool_events[sess][-50:]
 
     def _session_messages(self, session_id: str = "", limit: int = 20) -> list[dict]:
         """Fetch recent session messages from state.db for rich context."""
