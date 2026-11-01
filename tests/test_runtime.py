@@ -450,7 +450,8 @@ class TestAdvisorRuntime(unittest.TestCase):
         rt.record_tool_call(tool_name="terminal", args={"command": "rm -rf foo"}, result="Permission denied", session_id="s_unv")
         res = rt.on_transform_llm_output(response_text="I deleted foo successfully.", session_id="s_unv")
         self.assertIsNotNone(res)
-        self.assertIn("Verification Alert", res)
+        self.assertIn("[Auditor note:", res)
+        self.assertNotIn("⚠️", res, "Must not print warning banners per MEMORY standing rule")
         self.assertIn("Claim contradicted by tool output", res)
 
     def test_transform_llm_output_approves_unverified_turn_cleanly(self):
