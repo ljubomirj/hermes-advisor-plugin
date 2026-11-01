@@ -28,7 +28,10 @@ class ProbeResult:
         self.output = output.strip()
 
     def format_evidence(self) -> str:
-        status_str = "CONFIRMED" if self.success else "CONTRADICTED"
+        if not self.executed:
+            status_str = "INCONCLUSIVE"
+        else:
+            status_str = "CONFIRMED" if self.success else "CONTRADICTED"
         return f"[Active Probe {status_str}]: `{self.command}` -> {self.output[:200]}"
 
 
@@ -67,11 +70,11 @@ def probe_git_clean_status(cwd: str) -> ProbeResult | None:
             )
     except Exception as e:
         return ProbeResult(
-            executed=True,
+            executed=False,
             success=False,
             claim="working tree clean",
             command=f"git -C {cwd} status --porcelain",
-            output=f"Probe failed: {e}",
+            output=f"Probe inconclusive: {e}",
         )
     return None
 
@@ -99,8 +102,8 @@ def probe_service_running(label: str) -> ProbeResult | None:
         )
         if proc.returncode == 0:
             for line in proc.stdout.splitlines():
-                if label in line:
-                    parts = line.split()
+                parts = line.split()
+                if parts and parts[-1] == label:
                     pid = parts[0]
                     is_alive = pid.isdigit() and int(pid) > 0
                     return ProbeResult(

@@ -75,8 +75,19 @@ class TestDeterministicLedger(unittest.TestCase):
         self.assertEqual(v.rule, "unacknowledged_tool_failure")
 
         # Draft acknowledges the failure
-        v_ack = audit_draft_ledger("The push failed with an exit error, so I backed off.", tool_events=tool_events)
+        v_ack = audit_draft_ledger("Done successfully, except the push failed with an exit error.", tool_events=tool_events)
         self.assertTrue(v_ack.passed)
+
+        # Test traceback pattern in tool errors
+        tb_event = [{"tool": "terminal", "args": "python run.py", "result": "Traceback (most recent call last):\n  File 'x.py', line 1\nValueError: boom"}]
+        v_tb = audit_draft_ledger("Everything works and is healthy.", tool_events=tb_event)
+        self.assertFalse(v_tb.passed)
+        self.assertEqual(v_tb.rule, "unacknowledged_tool_failure")
+
+        # Test claims text is checked when draft is non-empty
+        v_claims = audit_draft_ledger(draft="Done.", claims=["All 36 tests pass"], tool_events=[])
+        self.assertFalse(v_claims.passed)
+        self.assertEqual(v_claims.rule, "unbacked_assertion")
 
 
 class TestActiveProber(unittest.TestCase):
@@ -193,6 +204,10 @@ class TestDialecticAuditor(unittest.TestCase):
 
         res_err = auditor_fail.run_arbiter("draft", "tools", "", accusations=None)
         self.assertEqual(res_err["status"], "error")
+
+        # Test arbiter failure returns error status
+        res_arbiter_err = auditor_fail.run_arbiter("draft", "tools", "", accusations=[{"claim": "c", "category": "cat", "evidence_gap": "gap"}])
+        self.assertEqual(res_arbiter_err["status"], "error")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ _CORROBORATION_RULES = [
 _TOOL_FAILURE_PATTERNS = [
     re.compile(r"\bexit_code:\s*([1-9]\d*)\b"),
     re.compile(r"\bexit code\s+([1-9]\d*)\b"),
-    re.compile(r"\b(Permission denied|command not found|SyntaxError|Traceback \(most recent call last\))\b"),
+    re.compile(r"\b(Permission denied|command not found|SyntaxError)\b|Traceback \(most recent call last\)"),
 ]
 
 
@@ -82,11 +82,13 @@ def audit_draft_ledger(
 ) -> LedgerVerdict:
     """Deterministically audit draft against tool events before invoking LLM."""
     clean_draft = (draft or "").strip()
-    if not clean_draft and claims:
-        if isinstance(claims, list):
-            clean_draft = " ".join(str(c) for c in claims).strip()
-        else:
-            clean_draft = str(claims).strip()
+    if isinstance(claims, list):
+        claims_text = " ".join(str(c) for c in claims).strip()
+    else:
+        claims_text = str(claims or "").strip()
+
+    if not clean_draft:
+        clean_draft = claims_text
 
     if not clean_draft:
         return LedgerVerdict(
@@ -94,6 +96,9 @@ def audit_draft_ledger(
             reason="Draft is empty. A valid response draft or claim list is required for verification.",
             rule="empty_draft"
         )
+
+    # Combined text for checking factual claims across draft and explicit claims
+    scan_text = f"{clean_draft} {claims_text}".strip()
 
     # 1. Check for placeholder drafts
     for pat in _PLACEHOLDER_PATTERNS:
@@ -113,7 +118,7 @@ def audit_draft_ledger(
     missing_checks = []
     unbacked_reasons = []
     for rule in _CORROBORATION_RULES:
-        if rule["pattern"].search(clean_draft):
+        if rule["pattern"].search(scan_text):
             # Check if any required pattern was executed in tool events
             matched = any(
                 re.search(req_pat, combined_evidence, re.IGNORECASE)
@@ -134,7 +139,7 @@ def audit_draft_ledger(
         )
 
     # 3. Check for severe unhandled tool errors if draft claims unqualified success
-    claims_clean_success = re.search(r"(?i)\b(all clean|succeeded|done successfully|everything works?|healthy)\b", clean_draft)
+    claims_clean_success = re.search(r"(?i)\b(all clean|succeeded|done successfully|everything works?|healthy)\b", scan_text)
     if claims_clean_success and tool_events:
         # Check only the final execution result per tool to avoid flagging retried/recovered commands
         latest_event_per_tool = {}

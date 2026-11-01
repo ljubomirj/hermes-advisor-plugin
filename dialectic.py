@@ -141,6 +141,7 @@ class DialecticAuditor:
                 return parsed
         except Exception as e:
             logger.warning("Advisor Arbiter failed: %s", e)
+            return {"status": "error", "reason": f"Arbiter stage failed: {e}"}
 
         # Fallback if parsing failed
         valid_accusations = [a for a in accusations if isinstance(a, dict)]

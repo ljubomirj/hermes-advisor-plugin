@@ -143,7 +143,10 @@ def extract_benchmark_cases(limit_per_session=15):
             cases.extend(session_cases)
 
         print(f"Extracted {len(cases)} benchmark cases across {len(top_sessions)} sessions.")
-        with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        # Restrict permissions to owner only (0o600) for security
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        mode = 0o600
+        with open(os.open(OUTPUT_PATH, flags, mode), "w", encoding="utf-8") as f:
             json.dump(cases, f, indent=2)
         print(f"Saved dataset to {OUTPUT_PATH}")
         return cases
