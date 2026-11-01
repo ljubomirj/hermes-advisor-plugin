@@ -84,6 +84,12 @@ class TestDeterministicLedger(unittest.TestCase):
         self.assertFalse(v_tb.passed)
         self.assertEqual(v_tb.rule, "unacknowledged_tool_failure")
 
+        # Test JSON tool output exit code matching
+        json_err_event = [{"tool": "terminal", "args": "git push", "result": '{"output": "remote rejected", "exit_code": 1}'}]
+        v_json = audit_draft_ledger("Everything works and is healthy.", tool_events=json_err_event)
+        self.assertFalse(v_json.passed)
+        self.assertEqual(v_json.rule, "unacknowledged_tool_failure")
+
         # Test claims text is checked when draft is non-empty
         v_claims = audit_draft_ledger(draft="Done.", claims=["All 36 tests pass"], tool_events=[])
         self.assertFalse(v_claims.passed)
