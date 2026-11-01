@@ -22,25 +22,25 @@ _PLACEHOLDER_PATTERNS = [
 _CORROBORATION_RULES = [
     {
         "name": "test_suite_passed",
-        "pattern": re.compile(r"(?i)\b(all \d+ tests? pass(ed)?|test suite passes?|tests? pass(ed)?)\b"),
+        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )\b(all \d+ tests? pass(ed)?|test suite passes?|tests? pass(ed)?)\b"),
         "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\bnpm (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
         "suggested_command": "Run your test suite (e.g. pytest or unittest) before asserting tests pass.",
     },
     {
         "name": "clean_git_tree",
-        "pattern": re.compile(r"(?i)\b(working tree (is )?clean|clean working tree|git status clean)\b"),
+        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )\b(working tree (is )?clean|clean working tree|git status clean)\b"),
         "required_tool_patterns": [r"git status", r"git diff", r"git -C .* status"],
         "suggested_command": "Run `git status` to verify the working tree is clean.",
     },
     {
         "name": "git_pushed",
-        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!yet to be )\b(pushed to (origin|remote|github)|(?:i|we) (?:ran|did) git push)\b"),
+        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )(?<!not been )(?<!never been )(?<!yet to be )\b(pushed to (origin|remote|github)|(?:i|we) (?:ran|did) git push)\b"),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
         "suggested_command": "Run `git push` before asserting changes were pushed.",
     },
     {
         "name": "pr_merged",
-        "pattern": re.compile(r"(?i)\b(merged pr #?\d+|pr #?\d+ (was |is )?merged)\b"),
+        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )\b(merged pr #?\d+|pr #?\d+ (was |is )?merged)\b"),
         "required_tool_patterns": [r"gh pr merge", r"git merge"],
         "suggested_command": "Verify PR merge via `gh pr merge` or `gh pr view`.",
     },
@@ -110,7 +110,7 @@ def audit_draft_ledger(
             )
 
     combined_tool_text = " ".join(
-        f"{ev.get('tool', '')} {ev.get('args', '')} {ev.get('result', '')}" for ev in tool_events
+        f"{ev.get('tool', '')} {ev.get('args', '')}" for ev in tool_events
     )
     combined_evidence = combined_tool_text.lower()
 

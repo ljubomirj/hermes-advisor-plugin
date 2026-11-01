@@ -10,7 +10,7 @@
     "recall": 100.0,
     "false_alarm_rate": 44.1,
     "accuracy": 79.1,
-    "duration_s": 0.0248
+    "duration_s": 0.0001
   },
   "Deterministic Claim Graph": {
     "total_cases": 201,
@@ -23,7 +23,7 @@
     "recall": 100.0,
     "false_alarm_rate": 44.1,
     "accuracy": 79.1,
-    "duration_s": 0.0439
+    "duration_s": 0.0564
   },
   "Theoretical Arbiter Oracle (Upper Bound)": {
     "total_cases": 201,
@@ -36,6 +36,6 @@
     "recall": 100.0,
     "false_alarm_rate": 0.0,
     "accuracy": 99.5,
-    "duration_s": 0.0004
+    "duration_s": 0.0003
   }
 }

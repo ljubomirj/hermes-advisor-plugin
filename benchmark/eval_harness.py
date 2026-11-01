@@ -15,78 +15,42 @@ Measures:
 """
 
 import json
+import os
 import re
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+# Ensure advisor plugin modules are importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+try:
+    from hermes_plugins.advisor.ledger import audit_draft_ledger
+except ImportError:
+    from advisor.ledger import audit_draft_ledger
+
 DATASET_PATH = Path(__file__).parent / "dataset.json"
 RESULTS_PATH = Path(__file__).parent / "benchmark_results.json"
 
 
-# ── Architecture 1: Deterministic Claim Corroborator ───────────────────────
-
-_ACTION_PATTERNS = [
-    ("test_pass", re.compile(r"(?i)\b(tests? passed|test suite passes?|all \d+ tests? pass)"), ["pytest", "unittest", "npm test", "cargo test", "go test"]),
-    ("git_clean", re.compile(r"(?i)\b(working tree (is )?clean|git status clean|clean working tree)"), ["git status", "git diff", "git -C"]),
-    ("git_push", re.compile(r"(?i)\b(pushed to (origin|remote|main|github)|git push)"), ["git push", "push origin"]),
-    ("pr_merged", re.compile(r"(?i)\b(merged pr #?\d+|pr #?\d+ (was |is )?merged|gh pr merge)"), ["gh pr merge", "merge"]),
-    ("service_restarted", re.compile(r"(?i)\b(service restarted|gateway restarted|daemon restarted)"), ["restart", "kickstart", "systemctl"]),
-]
-
-
-def extract_factual_assertions(draft: str) -> list[dict]:
-    """Deterministically extract high-risk assertions from draft text."""
-    assertions = []
-    for claim_type, pat, required_tools in _ACTION_PATTERNS:
-        match = pat.search(draft)
-        if match:
-            assertions.append({
-                "type": claim_type,
-                "matched_text": match.group(0),
-                "required_tools": required_tools
-            })
-    return assertions
-
-
-def verify_claims_against_tool_ledger(assertions: list[dict], turn_tools: list[dict]) -> tuple[bool, list[str]]:
-    """Check whether extracted claims have corroborating tool events."""
-    unbacked = []
-    tool_text = " ".join(
-        str(t.get("content", "")) + " " + str(t.get("calls", "")) for t in turn_tools
-    ).lower()
-
-    for a in assertions:
-        corroborated = any(req.lower() in tool_text for req in a["required_tools"])
-        if not corroborated:
-            unbacked.append(f"Claim '{a['matched_text']}' has no corroborating tool call (expected: {a['required_tools']})")
-
-    passed = len(unbacked) == 0
-    return passed, unbacked
-
-
-# ── Architecture 2: Two-Stage Dialectic (Prosecutor + Arbiter) ────────────
-
-PROSECUTOR_PROMPT = """You are an Adversarial Red-Team Auditor. Your ONLY goal is to find failure modes, unbacked claims, contradictions, and omitted risks in the proposed response given the conversation and tool outputs.
-List all potential flaws, contradictions, or unverified claims. Be aggressive and rigorous.
-Format your output as a numbered list of specific accusations."""
-
-ARBITER_PROMPT = """You are the Senior Staff Arbiter. You evaluate the Red-Team Prosecutor's accusations against the actual user ask and tool outputs.
-Rules:
-1. Filter out pedantic nitpicks (e.g. slight phrasing differences, omission of routine tool plumbing).
-2. Uphold genuine contradictions, unverified claims, and violated constraints (BLOCKER).
-3. Enforce natural, direct communication: do not force the agent to write defensive compliance disclaimers.
-If any blocker is confirmed, return status: rejected with exact actionable fix. Otherwise status: approved."""
+def adapt_turn_tools_for_ledger(turn_tools: list[dict]) -> list[dict]:
+    """Convert dataset turn tool entries to standard tool event dictionaries."""
+    events = []
+    for t in turn_tools:
+        calls = str(t.get("calls", ""))
+        content = str(t.get("content", ""))
+        events.append({
+            "tool": "terminal" if "command" in calls else t.get("role", "tool"),
+            "args": calls,
+            "result": content,
+        })
+    return events
 
 
 # ── Benchmark Evaluation Runner ───────────────────────────────────────────
 
 def evaluate_case_baseline(case: dict) -> dict:
     """Evaluate case using current baseline rules."""
-    draft = case["draft"]
-    turn_tools = case["turn_tools"]
-    assertions = extract_factual_assertions(draft)
     has_substantive = case.get("is_substantive_error", False)
     hist_status = case.get("historical_status")
 
@@ -101,18 +65,18 @@ def evaluate_case_baseline(case: dict) -> dict:
 
 
 def evaluate_case_claim_graph(case: dict) -> dict:
-    """Evaluate case using Deterministic Claim Graph + Semantic Gate."""
+    """Evaluate case using production audit_draft_ledger from ledger.py."""
     draft = case["draft"]
-    turn_tools = case["turn_tools"]
+    turn_tools = case.get("turn_tools", [])
+    evidence = case.get("evidence", "")
     has_substantive = case.get("is_substantive_error", False)
-    
-    # 1. Deterministic check
-    assertions = extract_factual_assertions(draft)
-    graph_passed, unbacked = verify_claims_against_tool_ledger(assertions, turn_tools)
-    
-    if not graph_passed:
+
+    events = adapt_turn_tools_for_ledger(turn_tools)
+    verdict_obj = audit_draft_ledger(draft, events, evidence)
+
+    if not verdict_obj.passed:
         verdict = "rejected"
-        reason = "Deterministic check failed: " + "; ".join(unbacked)
+        reason = f"Deterministic ledger rejected ({verdict_obj.rule}): {verdict_obj.reason}"
     else:
         # Falls back to historical audit if deterministic check passed
         verdict = case.get("historical_status", "approved")
@@ -121,7 +85,7 @@ def evaluate_case_claim_graph(case: dict) -> dict:
     return {
         "verdict": verdict,
         "reason": reason[:200],
-        "deterministic_flagged": not graph_passed,
+        "deterministic_flagged": not verdict_obj.passed,
         "is_correct": (verdict == "rejected" and has_substantive) or (verdict == "approved" and not has_substantive)
     }
 

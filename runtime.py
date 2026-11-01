@@ -736,7 +736,9 @@ class AdvisorRuntime:
         guidelines = _find_guidelines(cwd)
 
         # Active autonomous probing (read-only verification of verifiable claims)
-        active_probes = run_active_probes_for_draft(draft, cwd)
+        claims_text = " ".join(str(c) for c in claims) if isinstance(claims, list) else str(claims or "")
+        scan_draft = f"{draft} {claims_text}".strip()
+        active_probes = run_active_probes_for_draft(scan_draft, cwd)
         probe_notes = []
         for p in active_probes:
             probe_notes.append(p.format_evidence())
@@ -752,7 +754,10 @@ class AdvisorRuntime:
         # Deterministic ledger pre-flight verification
         ledger_verdict = audit_draft_ledger(draft, events, combined_evidence, claims=claims)
         if not ledger_verdict.passed:
-            return ledger_verdict.to_dict()
+            verdict = ledger_verdict.to_dict()
+            if probe_notes:
+                verdict["reason"] = f"{verdict.get('reason', '')} Active probe notes: " + " ".join(probe_notes)
+            return verdict
 
         system_prompt = (
             "You are an objective auditor and senior coworker verifying an AI agent's actions and draft response.\n"

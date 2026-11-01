@@ -147,6 +147,6 @@ class DialecticAuditor:
         valid_accusations = [a for a in accusations if isinstance(a, dict)]
         return {
             "status": "rejected",
-            "reason": f"Auditor flagged {len(valid_accusations)} potential issues: " + "; ".join(a.get("evidence_gap", "") for a in valid_accusations[:2]),
-            "unbacked_claims": [a.get("claim", "") for a in valid_accusations[:3]],
+            "reason": f"Auditor flagged {len(valid_accusations)} potential issues: " + "; ".join(str(a.get("evidence_gap", "")) for a in valid_accusations[:2]),
+            "unbacked_claims": [str(a.get("claim", "")) for a in valid_accusations[:3]],
         }
