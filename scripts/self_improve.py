@@ -71,17 +71,19 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
             except Exception:
                 reasons.append(content)
 
-    pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|never checked|stronger than|unrun|never finished checking")
-    pat_omitted = re.compile(r"(?i)\b(omitted|missing|skips|leaves out|one-sided)\b")
+    pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|unsupported|never checked|stronger than|unrun|never finished checking")
+    pat_omitted = re.compile(r"(?i)\b(omitted|missing (context|details|trade-offs?|comparisons?)|skips|leaves out|one-sided)\b")
+    pat_directive = re.compile(r"(?i)\b(directive|standing rule|explicit instruction|user asked to not|violated\s+(?:the\s+)?(?:directive|constraint|rule|instruction))\b")
     pat_arithmetic = re.compile(r"(?i)\b(arithmetic|miscount|math|miscalculated|wrong sum)\b")
     pat_contradiction = re.compile(r"(?i)\b(contradict|misreport|false claim|invalid fix)\b")
     pat_unanswered = re.compile(r"(?i)\b(does not|didn't|doesn't|never)\s+answer\b")
-    pat_unsanctioned = re.compile(r"(?i)\b(unsanctioned|without asking|without running|admin-merge|bypassing)\b")
+    pat_unsanctioned = re.compile(r"(?i)\b(unsanctioned|without asking|without running|admin-merge|bypassing|missing.*gate)\b")
     pat_empty = re.compile(r"(?i)\b(no draft|placeholder|empty draft)\b")
     pat_style = re.compile(r"(?i)\b(bureaucratic|affidavit|defensive|pedantic|jargon)\b")
 
     categories = {
         "unsupported_claim_or_overstatement": 0,
+        "user_directive_violation": 0,
         "omitted_context_or_tradeoff": 0,
         "arithmetic_or_count_error": 0,
         "contradiction_or_invalid_fix": 0,
@@ -95,6 +97,8 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
     for r in reasons:
         if pat_unsupported.search(r):
             categories["unsupported_claim_or_overstatement"] += 1
+        elif pat_directive.search(r):
+            categories["user_directive_violation"] += 1
         elif pat_omitted.search(r):
             categories["omitted_context_or_tradeoff"] += 1
         elif pat_arithmetic.search(r):
@@ -112,20 +116,29 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
         else:
             categories["other"] += 1
 
+    recommendation_targets = {
+        "unsupported_claim_or_overstatement": "add deterministic ledger rules in ledger.py or expand active read-only probes in prober.py.",
+        "user_directive_violation": "strengthen directive extraction and active constraint checks in runtime.py.",
+        "omitted_context_or_tradeoff": "ensure comparative evaluations surface both sides of options and trade-offs.",
+        "unsanctioned_action_or_skipped_gate": "ensure review gates and push gates are strictly followed before making changes.",
+        "contradiction_or_invalid_fix": "cross-check tool exit codes and error outputs against success assertions before drafting.",
+        "arithmetic_or_count_error": "compute counts and arithmetic in python rather than estimating in text.",
+        "unanswered_user_ask": "ensure the primary user question is directly answered before adding background context.",
+        "empty_or_placeholder_draft": "eliminate placeholder drafts and ensure verify_turn receives complete user responses.",
+        "style_or_bureaucratic_tone": "prune bureaucratic boilerplate, legalistic disclaimers, and defense paragraphs.",
+    }
+
     recommendations = []
-    if categories["unsupported_claim_or_overstatement"] > 0:
+    ranked_cats = [
+        (cat, count) for cat, count in categories.items() if cat != "other" and count > 0
+    ]
+    ranked_cats.sort(key=lambda x: x[1], reverse=True)
+    if ranked_cats:
+        top_cat, top_count = ranked_cats[0]
+        advice = recommendation_targets.get(top_cat, "investigate failure patterns and refine checks.")
+        other_note = f" (Note: 'other' has {categories['other']} unclassified reasons)" if categories["other"] > top_count else ""
         recommendations.append(
-            "Unsupported claims/overstatements are leading failure mode: add deterministic ledger rules "
-            "in ledger.py or expand active read-only probes in prober.py."
-        )
-    if categories["omitted_context_or_tradeoff"] > 0:
-        recommendations.append(
-            "Omitted trade-offs or balance context detected: ensure comparative evaluations "
-            "surface both sides of options."
-        )
-    if categories["unsanctioned_action_or_skipped_gate"] > 0:
-        recommendations.append(
-            "Unsanctioned actions detected: ensure review gates and push gates are strictly followed."
+            f"Leading recognized failure mode is {top_cat} ({top_count} occurrences){other_note}: {advice}"
         )
 
     return {
