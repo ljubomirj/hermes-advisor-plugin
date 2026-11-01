@@ -71,40 +71,61 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
             except Exception:
                 reasons.append(content)
 
+    pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|never checked|stronger than|unrun|never finished checking")
+    pat_omitted = re.compile(r"(?i)\b(omitted|missing|skips|leaves out|one-sided)\b")
+    pat_arithmetic = re.compile(r"(?i)\b(arithmetic|miscount|math|miscalculated|wrong sum)\b")
+    pat_contradiction = re.compile(r"(?i)\b(contradict|misreport|false claim|invalid fix)\b")
+    pat_unanswered = re.compile(r"(?i)\b(does not|didn't|doesn't|never)\s+answer\b")
+    pat_unsanctioned = re.compile(r"(?i)\b(unsanctioned|without asking|without running|admin-merge|bypassing)\b")
+    pat_empty = re.compile(r"(?i)\b(no draft|placeholder|empty draft)\b")
+    pat_style = re.compile(r"(?i)\b(bureaucratic|affidavit|defensive|pedantic|jargon)\b")
+
     categories = {
-        "user_directive_violation": 0,
-        "unverified_assertion": 0,
-        "tool_output_contradiction": 0,
-        "style_or_pedantic_omission": 0,
-        "missing_action_or_cron": 0,
+        "unsupported_claim_or_overstatement": 0,
+        "omitted_context_or_tradeoff": 0,
+        "arithmetic_or_count_error": 0,
+        "contradiction_or_invalid_fix": 0,
+        "unanswered_user_ask": 0,
+        "unsanctioned_action_or_skipped_gate": 0,
+        "empty_or_placeholder_draft": 0,
+        "style_or_bureaucratic_tone": 0,
         "other": 0,
     }
 
     for r in reasons:
-        rl = r.lower()
-        if "directive" in rl or "user said" in rl or "user asked" in rl or "alejandro" in rl or "constraint" in rl:
-            categories["user_directive_violation"] += 1
-        elif "unverified" in rl or "no tool" in rl or "not supported" in rl or "never checked" in rl or "unrun" in rl:
-            categories["unverified_assertion"] += 1
-        elif "contradict" in rl or "misreport" in rl or "false" in rl or "failed" in rl:
-            categories["tool_output_contradiction"] += 1
-        elif "cron" in rl or "action" in rl or "scheduled" in rl:
-            categories["missing_action_or_cron"] += 1
-        elif "pedantic" in rl or "style" in rl or "paragraph" in rl or "bureaucratic" in rl:
-            categories["style_or_pedantic_omission"] += 1
+        if pat_unsupported.search(r):
+            categories["unsupported_claim_or_overstatement"] += 1
+        elif pat_omitted.search(r):
+            categories["omitted_context_or_tradeoff"] += 1
+        elif pat_arithmetic.search(r):
+            categories["arithmetic_or_count_error"] += 1
+        elif pat_contradiction.search(r):
+            categories["contradiction_or_invalid_fix"] += 1
+        elif pat_unanswered.search(r):
+            categories["unanswered_user_ask"] += 1
+        elif pat_unsanctioned.search(r):
+            categories["unsanctioned_action_or_skipped_gate"] += 1
+        elif pat_empty.search(r):
+            categories["empty_or_placeholder_draft"] += 1
+        elif pat_style.search(r):
+            categories["style_or_bureaucratic_tone"] += 1
         else:
             categories["other"] += 1
 
     recommendations = []
-    if categories["user_directive_violation"] > categories["unverified_assertion"]:
+    if categories["unsupported_claim_or_overstatement"] > 0:
         recommendations.append(
-            "User directive violations are leading failure mode: strengthen directive extraction "
-            "and check for negative lookaheads in agent assumptions."
+            "Unsupported claims/overstatements are leading failure mode: add deterministic ledger rules "
+            "in ledger.py or expand active read-only probes in prober.py."
         )
-    if categories["unverified_assertion"] > 0:
+    if categories["omitted_context_or_tradeoff"] > 0:
         recommendations.append(
-            "Unverified assertions detected: identify recurring diagnostic commands and add "
-            "deterministic ledger rules or active prober checks in prober.py."
+            "Omitted trade-offs or balance context detected: ensure comparative evaluations "
+            "surface both sides of options."
+        )
+    if categories["unsanctioned_action_or_skipped_gate"] > 0:
+        recommendations.append(
+            "Unsanctioned actions detected: ensure review gates and push gates are strictly followed."
         )
 
     return {
