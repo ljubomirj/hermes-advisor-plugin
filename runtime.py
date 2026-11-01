@@ -657,6 +657,8 @@ class AdvisorRuntime:
                 "args": clean_args,
                 "result": res_str,
             })
+            if len(self._turn_tool_events[sess]) > 50:
+                self._turn_tool_events[sess] = self._turn_tool_events[sess][-50:]
 
     def _session_messages(self, session_id: str = "", limit: int = 20) -> list[dict]:
         """Fetch recent session messages from state.db for rich context."""
@@ -687,7 +689,7 @@ class AdvisorRuntime:
             self._turn_tool_events[sess] = []
             self._turn_verified[sess] = False
             if history:
-                self._session_history[sess] = list(history)
+                self._session_history[sess] = list(history[-20:])
 
         if not self.state.enabled or os.environ.get(ADVISOR_NO_REVIEW):
             return {}
@@ -898,9 +900,7 @@ class AdvisorRuntime:
         reason = audit.get("reason", "Discrepancy detected between claims and tool outputs.")
         return (
             f"{response_text}\n\n"
-            f"---\n"
-            f"⚠️ **[Verification Alert]** The auditor caught discrepancies in this answer:\n"
-            f"> {reason}"
+            f"[Auditor note: {reason}]"
         )
 
     def _session_user_directives(self, session_id: str = "") -> list[str]:
