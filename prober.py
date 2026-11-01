@@ -50,7 +50,7 @@ def probe_git_clean_status(cwd: str) -> ProbeResult | None:
 
     try:
         proc = subprocess.run(
-            ["git", "-C", cwd, "status", "--porcelain"],
+            ["git", "--no-optional-locks", "-C", cwd, "status", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_SECONDS,

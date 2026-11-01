@@ -1,8 +1,7 @@
 """Two-Stage Dialectic Verifier for Advisor Plugin.
 
-Separates the audit into two distinct phases to eliminate the 46% false-alarm rate
-while retaining 100% recall on substantive bugs:
-1. Phase 1: Adversarial Red-Team Challenger (prosecutes every potential discrepancy).
+Architectural design separating the audit into two distinct phases:
+1. Phase 1: Adversarial Red-Team Challenger (prosecutes potential discrepancies).
 2. Phase 2: Senior Staff Arbiter (evaluates accusations, dismisses pedantic nitpicks, upholds true blockers).
 """
 
@@ -81,7 +80,7 @@ class DialecticAuditor:
     def __init__(self, llm_complete_fn):
         self.llm_complete = llm_complete_fn
 
-    def run_challenger(self, draft: str, tool_events_text: str, directives_text: str, history_text: str) -> list[dict]:
+    def run_challenger(self, draft: str, tool_events_text: str, directives_text: str, history_text: str) -> list[dict] | None:
         """Phase 1: Red-team attacks the draft."""
         user_prompt = (
             f"### Proposed Draft Response:\n{draft}\n\n"
@@ -98,20 +97,26 @@ class DialecticAuditor:
             res = self.llm_complete(messages=messages)
             parsed = parse_json_safely(getattr(res, "text", str(res)))
             if isinstance(parsed, list):
-                return parsed
+                return [a for a in parsed if isinstance(a, dict)]
         except Exception as e:
             logger.warning("Advisor Challenger failed: %s", e)
-        return []
+        return None
 
     def run_arbiter(
         self,
         draft: str,
         tool_events_text: str,
         directives_text: str,
-        accusations: list[dict],
+        accusations: list[dict] | None,
     ) -> dict[str, Any]:
         """Phase 2: Senior arbiter rules on accusations."""
-        if not accusations:
+        if accusations is None:
+            return {
+                "status": "error",
+                "reason": "Challenger stage failed to produce a valid evaluation.",
+            }
+
+        if len(accusations) == 0:
             return {
                 "status": "approved",
                 "reason": "Challenger found zero issues. Draft is corroborated.",
@@ -138,8 +143,9 @@ class DialecticAuditor:
             logger.warning("Advisor Arbiter failed: %s", e)
 
         # Fallback if parsing failed
+        valid_accusations = [a for a in accusations if isinstance(a, dict)]
         return {
             "status": "rejected",
-            "reason": f"Auditor flagged {len(accusations)} potential issues: " + "; ".join(a.get("evidence_gap", "") for a in accusations[:2]),
-            "unbacked_claims": [a.get("claim", "") for a in accusations[:3]],
+            "reason": f"Auditor flagged {len(valid_accusations)} potential issues: " + "; ".join(a.get("evidence_gap", "") for a in valid_accusations[:2]),
+            "unbacked_claims": [a.get("claim", "") for a in valid_accusations[:3]],
         }

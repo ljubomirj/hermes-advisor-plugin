@@ -23,7 +23,7 @@ _CORROBORATION_RULES = [
     {
         "name": "test_suite_passed",
         "pattern": re.compile(r"(?i)\b(all \d+ tests? pass(ed)?|test suite passes?|tests? pass(ed)?)\b"),
-        "required_tool_patterns": [r"test", r"unittest", r"pytest", r"npm test", r"cargo test", r"go test"],
+        "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\bnpm (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
         "suggested_command": "Run your test suite (e.g. pytest or unittest) before asserting tests pass.",
     },
     {
@@ -34,7 +34,7 @@ _CORROBORATION_RULES = [
     },
     {
         "name": "git_pushed",
-        "pattern": re.compile(r"(?i)\b(pushed to (origin|remote|github)|git push)\b"),
+        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!yet to be )\b(pushed to (origin|remote|github)|(?:i|we) (?:ran|did) git push)\b"),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
         "suggested_command": "Run `git push` before asserting changes were pushed.",
     },
@@ -107,14 +107,14 @@ def audit_draft_ledger(
     combined_tool_text = " ".join(
         f"{ev.get('tool', '')} {ev.get('args', '')} {ev.get('result', '')}" for ev in tool_events
     )
-    combined_evidence = f"{combined_tool_text} {evidence}".lower()
+    combined_evidence = combined_tool_text.lower()
 
     # 2. Check corroboration rules
     missing_checks = []
     unbacked_reasons = []
     for rule in _CORROBORATION_RULES:
         if rule["pattern"].search(clean_draft):
-            # Check if any required pattern was executed or present in evidence
+            # Check if any required pattern was executed in tool events
             matched = any(
                 re.search(req_pat, combined_evidence, re.IGNORECASE)
                 for req_pat in rule["required_tool_patterns"]
@@ -136,19 +136,25 @@ def audit_draft_ledger(
     # 3. Check for severe unhandled tool errors if draft claims unqualified success
     claims_clean_success = re.search(r"(?i)\b(all clean|succeeded|done successfully|everything works?|healthy)\b", clean_draft)
     if claims_clean_success and tool_events:
+        # Check only the final execution result per tool to avoid flagging retried/recovered commands
+        latest_event_per_tool = {}
         for ev in tool_events:
+            tool_name = ev.get("tool", "")
+            if tool_name:
+                latest_event_per_tool[tool_name] = ev
+
+        for tool_name, ev in latest_event_per_tool.items():
             res = str(ev.get("result", ""))
             for err_pat in _TOOL_FAILURE_PATTERNS:
                 m = err_pat.search(res)
                 if m:
-                    # An error occurred in tools this turn, but draft claims clean success
-                    # Check if draft acknowledged the failure
+                    # An error occurred in the final tool call of this tool, but draft claims clean success
                     ack_words = ["failed", "error", "exit", "issue", "problem", "unable to", "warning"]
                     if not any(w in clean_draft.lower() for w in ack_words):
                         return LedgerVerdict(
                             passed=False,
                             reason=(
-                                f"Tool '{ev.get('tool')}' reported a failure ({m.group(0)}), but the draft claims "
+                                f"Tool '{tool_name}' reported a failure ({m.group(0)}), but the draft claims "
                                 "clean success without acknowledging or explaining the failure."
                             ),
                             missing_checks=["Inspect tool error and explain or resolve it in the draft."],

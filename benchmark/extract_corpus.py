@@ -2,11 +2,12 @@
 """Extract a benchmark dataset of historical verify_turn scenarios from state.db."""
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("/Users/alejandro/.hermes/state.db")
+DB_PATH = Path(os.environ.get("HERMES_STATE_DB", Path.home() / ".hermes" / "state.db"))
 OUTPUT_PATH = Path(__file__).parent / "dataset.json"
 
 

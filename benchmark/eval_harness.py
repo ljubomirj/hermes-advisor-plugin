@@ -164,19 +164,19 @@ def run_benchmark(sample_size=100):
     engines = {
         "Baseline (Current Advisor)": evaluate_case_baseline,
         "Deterministic Claim Graph": evaluate_case_claim_graph,
-        "Dialectic (Red-Team + Arbiter)": evaluate_case_dialectic,
+        "Theoretical Arbiter Oracle (Upper Bound)": evaluate_case_dialectic,
     }
 
     results = {}
     for name, fn in engines.items():
         t0 = time.time()
-        tp, fp, tn, fn_cnt = 0, 0, 0, 0
+        tp, fp, tn, fn_cnt, unknown = 0, 0, 0, 0, 0
         total = len(eval_cases)
 
         for c in eval_cases:
             has_error = c.get("is_substantive_error", False)
             res = fn(c)
-            v = res["verdict"]
+            v = str(res.get("verdict") or "").strip().lower()
 
             if v == "rejected" and has_error:
                 tp += 1
@@ -186,6 +186,8 @@ def run_benchmark(sample_size=100):
                 tn += 1
             elif v == "approved" and has_error:
                 fn_cnt += 1  # Missed bug
+            else:
+                unknown += 1
 
         elapsed = time.time() - t0
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -199,6 +201,7 @@ def run_benchmark(sample_size=100):
             "false_positives": fp,
             "true_negatives": tn,
             "false_negatives": fn_cnt,
+            "unknown": unknown,
             "precision": round(precision * 100, 1),
             "recall": round(recall * 100, 1),
             "false_alarm_rate": round(false_alarm_rate * 100, 1),

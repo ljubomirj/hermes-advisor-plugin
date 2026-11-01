@@ -1,6 +1,8 @@
 """Unit tests for substantial verifier upgrades: ledger, prober, dialectic."""
 
 import os
+import subprocess
+import tempfile
 import unittest
 try:
     from hermes_plugins.advisor.dialectic import DialecticAuditor, parse_json_safely
@@ -79,27 +81,31 @@ class TestDeterministicLedger(unittest.TestCase):
 
 class TestActiveProber(unittest.TestCase):
     def test_probe_file_existence(self):
-        res = probe_file_existence("/Users/alejandro/.hermes/plugins/advisor/plugin.yaml")
-        self.assertTrue(res.executed)
-        self.assertTrue(res.success)
+        with tempfile.NamedTemporaryFile() as tmp:
+            res = probe_file_existence(tmp.name)
+            self.assertTrue(res.executed)
+            self.assertTrue(res.success)
 
         res_missing = probe_file_existence("/tmp/non_existent_file_xyz_123.txt")
         self.assertTrue(res_missing.executed)
         self.assertFalse(res_missing.success)
 
     def test_probe_git_clean_status(self):
-        # /Users/alejandro/.hermes/plugins/advisor is a git repo
-        cwd = "/Users/alejandro/.hermes/plugins/advisor"
-        res = probe_git_clean_status(cwd)
-        self.assertIsNotNone(res)
-        self.assertTrue(res.executed)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            subprocess.run(["git", "init"], cwd=tmp_dir, check=True, capture_output=True)
+            res = probe_git_clean_status(tmp_dir)
+            self.assertIsNotNone(res)
+            self.assertTrue(res.executed)
+            self.assertTrue(res.success)
 
     def test_run_active_probes_for_draft(self):
-        cwd = "/Users/alejandro/.hermes/plugins/advisor"
-        draft = "The working tree is clean and ready."
-        probes = run_active_probes_for_draft(draft, cwd)
-        self.assertTrue(len(probes) >= 1)
-        self.assertIn("working tree clean", probes[0].claim)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            subprocess.run(["git", "init"], cwd=tmp_dir, check=True, capture_output=True)
+            draft = "The working tree is clean and ready."
+            probes = run_active_probes_for_draft(draft, tmp_dir)
+            self.assertTrue(len(probes) >= 1)
+            self.assertIn("working tree clean", probes[0].claim)
+            self.assertTrue(probes[0].success)
 
 
 class TestDialecticAuditor(unittest.TestCase):
@@ -167,6 +173,26 @@ class TestDialecticAuditor(unittest.TestCase):
         decision = auditor.run_arbiter("All 36 tests pass", "No tools ran", "", accusations)
         self.assertEqual(decision["status"], "rejected")
         self.assertEqual(decision["missing_checks"], ["Run python -m unittest"])
+
+    def test_dialectic_handles_challenger_failure_and_non_dict_items(self):
+        class MockLLMResult:
+            def __init__(self, text):
+                self.text = text
+
+        # Test non-dict item filtering
+        auditor = DialecticAuditor(lambda **kw: MockLLMResult('["not_a_dict", {"claim": "c", "category": "cat", "evidence_gap": "gap"}]'))
+        accusations = auditor.run_challenger("draft", "tools", "", "")
+        self.assertIsNotNone(accusations)
+        self.assertEqual(len(accusations), 1)
+        self.assertEqual(accusations[0]["claim"], "c")
+
+        # Test failure returns None and arbiter returns error status
+        auditor_fail = DialecticAuditor(lambda **kw: (_ for _ in ()).throw(RuntimeError("LLM exploded")))
+        accusations_fail = auditor_fail.run_challenger("draft", "tools", "", "")
+        self.assertIsNone(accusations_fail)
+
+        res_err = auditor_fail.run_arbiter("draft", "tools", "", accusations=None)
+        self.assertEqual(res_err["status"], "error")
 
 
 if __name__ == "__main__":
