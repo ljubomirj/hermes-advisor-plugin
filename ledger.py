@@ -48,7 +48,7 @@ _CORROBORATION_RULES = [
 
 # Keywords indicating an unhandled tool failure in raw tool results
 _TOOL_FAILURE_PATTERNS = [
-    re.compile(r"\bexit_code:\s*([1-9]\d*)\b"),
+    re.compile(r"""(?i)["']?exit[_-]?code["']?\s*[:=]\s*([1-9]\d*)"""),
     re.compile(r"\bexit code\s+([1-9]\d*)\b"),
     re.compile(r"\b(Permission denied|command not found|SyntaxError)\b|Traceback \(most recent call last\)"),
 ]
