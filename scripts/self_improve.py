@@ -71,17 +71,19 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
             except Exception:
                 reasons.append(content)
 
-    pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|never checked|stronger than|unrun|never finished checking")
-    pat_omitted = re.compile(r"(?i)\b(omitted|missing|skips|leaves out|one-sided)\b")
+    pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|unsupported|never checked|stronger than|unrun|never finished checking")
+    pat_omitted = re.compile(r"(?i)\b(omitted|missing (context|details|trade-off|comparison)|skips|leaves out|one-sided)\b")
+    pat_directive = re.compile(r"(?i)\b(directive|standing rule|explicit instruction|user asked to not|violated)\b")
     pat_arithmetic = re.compile(r"(?i)\b(arithmetic|miscount|math|miscalculated|wrong sum)\b")
     pat_contradiction = re.compile(r"(?i)\b(contradict|misreport|false claim|invalid fix)\b")
     pat_unanswered = re.compile(r"(?i)\b(does not|didn't|doesn't|never)\s+answer\b")
-    pat_unsanctioned = re.compile(r"(?i)\b(unsanctioned|without asking|without running|admin-merge|bypassing)\b")
+    pat_unsanctioned = re.compile(r"(?i)\b(unsanctioned|without asking|without running|admin-merge|bypassing|missing.*gate)\b")
     pat_empty = re.compile(r"(?i)\b(no draft|placeholder|empty draft)\b")
     pat_style = re.compile(r"(?i)\b(bureaucratic|affidavit|defensive|pedantic|jargon)\b")
 
     categories = {
         "unsupported_claim_or_overstatement": 0,
+        "user_directive_violation": 0,
         "omitted_context_or_tradeoff": 0,
         "arithmetic_or_count_error": 0,
         "contradiction_or_invalid_fix": 0,
@@ -95,6 +97,8 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
     for r in reasons:
         if pat_unsupported.search(r):
             categories["unsupported_claim_or_overstatement"] += 1
+        elif pat_directive.search(r):
+            categories["user_directive_violation"] += 1
         elif pat_omitted.search(r):
             categories["omitted_context_or_tradeoff"] += 1
         elif pat_arithmetic.search(r):
@@ -113,20 +117,27 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
             categories["other"] += 1
 
     recommendations = []
-    if categories["unsupported_claim_or_overstatement"] > 0:
-        recommendations.append(
-            "Unsupported claims/overstatements are leading failure mode: add deterministic ledger rules "
-            "in ledger.py or expand active read-only probes in prober.py."
-        )
-    if categories["omitted_context_or_tradeoff"] > 0:
-        recommendations.append(
-            "Omitted trade-offs or balance context detected: ensure comparative evaluations "
-            "surface both sides of options."
-        )
-    if categories["unsanctioned_action_or_skipped_gate"] > 0:
-        recommendations.append(
-            "Unsanctioned actions detected: ensure review gates and push gates are strictly followed."
-        )
+    ranked_cats = [
+        (cat, count) for cat, count in categories.items() if cat != "other" and count > 0
+    ]
+    ranked_cats.sort(key=lambda x: x[1], reverse=True)
+    if ranked_cats:
+        top_cat, top_count = ranked_cats[0]
+        if top_cat == "unsupported_claim_or_overstatement":
+            recommendations.append(
+                f"Unsupported claims/overstatements are leading failure mode ({top_count} occurrences): "
+                "add deterministic ledger rules in ledger.py or expand active read-only probes in prober.py."
+            )
+        elif top_cat == "user_directive_violation":
+            recommendations.append(
+                f"User directive violations are leading failure mode ({top_count} occurrences): "
+                "strengthen directive extraction and active constraint checks."
+            )
+        elif top_cat == "omitted_context_or_tradeoff":
+            recommendations.append(
+                f"Omitted context/trade-offs are leading failure mode ({top_count} occurrences): "
+                "ensure comparative evaluations surface both sides."
+            )
 
     return {
         "lookback_hours": lookback_hours,
