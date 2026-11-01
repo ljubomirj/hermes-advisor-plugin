@@ -72,7 +72,7 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
                 reasons.append(content)
 
     pat_unsupported = re.compile(r"(?i)\b(aren't|isn't|not|no)\s+(backed|supported|tool)\b|overstate|unverified|unsupported|never checked|stronger than|unrun|never finished checking")
-    pat_omitted = re.compile(r"(?i)\b(omitted|missing (context|details|trade-off|comparison)|skips|leaves out|one-sided)\b")
+    pat_omitted = re.compile(r"(?i)\b(omitted|missing (context|details|trade-offs?|comparisons?)|skips|leaves out|one-sided)\b")
     pat_directive = re.compile(r"(?i)\b(directive|standing rule|explicit instruction|user asked to not|violated\s+(?:the\s+)?(?:directive|constraint|rule|instruction))\b")
     pat_arithmetic = re.compile(r"(?i)\b(arithmetic|miscount|math|miscalculated|wrong sum)\b")
     pat_contradiction = re.compile(r"(?i)\b(contradict|misreport|false claim|invalid fix)\b")
