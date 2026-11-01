@@ -1,0 +1,41 @@
+{
+  "Baseline (Current Advisor)": {
+    "total_cases": 201,
+    "true_positives": 107,
+    "false_positives": 41,
+    "true_negatives": 52,
+    "false_negatives": 0,
+    "unknown": 1,
+    "precision": 72.3,
+    "recall": 100.0,
+    "false_alarm_rate": 44.1,
+    "accuracy": 79.1,
+    "duration_s": 0.0001
+  },
+  "Deterministic Claim Graph": {
+    "total_cases": 201,
+    "true_positives": 107,
+    "false_positives": 41,
+    "true_negatives": 52,
+    "false_negatives": 0,
+    "unknown": 1,
+    "precision": 72.3,
+    "recall": 100.0,
+    "false_alarm_rate": 44.1,
+    "accuracy": 79.1,
+    "duration_s": 0.0564
+  },
+  "Theoretical Arbiter Oracle (Upper Bound)": {
+    "total_cases": 201,
+    "true_positives": 107,
+    "false_positives": 0,
+    "true_negatives": 93,
+    "false_negatives": 0,
+    "unknown": 1,
+    "precision": 100.0,
+    "recall": 100.0,
+    "false_alarm_rate": 0.0,
+    "accuracy": 99.5,
+    "duration_s": 0.0003
+  }
+}

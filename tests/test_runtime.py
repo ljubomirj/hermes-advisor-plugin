@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch as mock_patch
 from pathlib import Path
 
 # Ensure Hermes agent & plugins are importable
@@ -634,6 +635,42 @@ class TestAdvisorRuntime(unittest.TestCase):
         res = rt.verify_turn(draft="All clean.", session_id="s_nondict")
         self.assertEqual(res.get("status"), "approved")
         self.assertIn("s_nondict", fallback_called, "Must fall back to database messages when in-memory cache has no valid dicts")
+
+    def test_verify_turn_deterministic_ledger_catches_unbacked_tests(self):
+        class FailIfCalledLLM:
+            def complete(self, **kw):
+                raise AssertionError("LLM should not be called when deterministic ledger rejects")
+        class MockCtx:
+            llm = FailIfCalledLLM()
+
+        rt = runtime_mod.AdvisorRuntime(MockCtx())
+        rt.state.enabled = True
+        # Draft claims tests passed, but no tools ran
+        res = rt.verify_turn(draft="All 36 tests pass cleanly.", session_id="s_ledger")
+        self.assertEqual(res.get("status"), "rejected")
+        self.assertEqual(res.get("rule"), "unbacked_assertion")
+        self.assertTrue(len(res.get("missing_checks", [])) > 0)
+
+    def test_verify_turn_active_probe_corroborates_clean_repo(self):
+        class MockLLMResult:
+            text = '{"status": "approved", "reason": "Probe corroborated claim"}'
+        class MockLLM:
+            def complete(self, **kw):
+                return MockLLMResult()
+        class MockCtx:
+            llm = MockLLM()
+
+        rt = runtime_mod.AdvisorRuntime(MockCtx())
+        rt.state.enabled = True
+        
+        # When active probe confirms clean repo
+        with mock_patch("hermes_plugins.advisor.runtime.run_active_probes_for_draft") as mock_probe:
+            from hermes_plugins.advisor.prober import ProbeResult
+            mock_probe.return_value = [
+                ProbeResult(executed=True, success=True, claim="working tree clean", command="git status", output="clean")
+            ]
+            res = rt.verify_turn(draft="The working tree is clean.", session_id="s_probe")
+            self.assertEqual(res.get("status"), "approved")
 
 
 if __name__ == "__main__":

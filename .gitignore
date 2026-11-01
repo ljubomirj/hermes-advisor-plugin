@@ -3,3 +3,4 @@ __pycache__/
 *.pyo
 state.json
 .hermes-catalog.json
+benchmark/dataset.json
