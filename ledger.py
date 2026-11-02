@@ -35,9 +35,9 @@ _CORROBORATION_RULES = [
     {
         "name": "git_pushed",
         "pattern": re.compile(
-            r"(?i)(?<!not )(?<!n't )(?<!never )(?<!not been )(?<!never been )(?<!yet to be )(?<!no )(?<!zero )(?<!without )(?<!changes )(?<!commits )(?<!branch )(?<!branches )"
+            r"(?i)(?<!not )(?<!n't )(?<!never )(?<!yet )(?<!not been )(?<!never been )(?<!yet to be )(?<!no )(?<!zero )(?<!without )(?<!changes )(?<!commits )(?<!branch )(?<!branches )"
             r"\b(?:pushed\s+(?:to\s+(?:the\s+)?(?:origin|remote|github)|(?:the\s+|all\s+)?(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|updates?)\s+to\s+(?:the\s+)?(?:origin|remote|github))"
-            r"|(?<!no )(?<!zero )(?<!not )(?<!n't )(?<!never )(?<!without )(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?)\s+(?:have been |were |was )?pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
+            r"|(?<!no )(?<!zero )(?<!not )(?<!n't )(?<!never )(?<!yet )(?<!without )(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?)\s+(?:have been |were |was )?pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
             r"|(?:i|we)\s+(?:ran|did)\s+git\s+push)\b"
         ),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
@@ -46,10 +46,10 @@ _CORROBORATION_RULES = [
     {
         "name": "pr_created",
         "pattern": re.compile(
-            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )(?<!not )(?<!n't )(?<!never )(?<!haven't )(?<!hasn't )(?<!hadn't )(?<!without )(?<!yet to )"
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )(?<!not )(?<!yet )(?<!n't )(?<!never )(?<!haven't )(?<!hasn't )(?<!hadn't )(?<!without )(?<!yet to )"
             r"\b(?:(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pr(?: #?\d+)?"
             r"|(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pull request(?: #?\d+)?"
-            r"|(?<!no )(?<!not )(?<!n't )(?<!never )pr #?\d+\s+(?:was |is )?(?:opened|created))\b"
+            r"|(?<!no )(?<!not )(?<!n't )(?<!never )(?<!yet )pr #?\d+\s+(?:was |is )?(?:opened|created))\b"
         ),
         "required_tool_patterns": [r"\bgh\s+pr\s+create\b"],
         "suggested_command": "Run `gh pr create` before claiming a PR was created or opened.",
@@ -181,12 +181,12 @@ def audit_draft_ledger(
                     missing_checks.append("Verify `gh pr create` succeeded before claiming a PR was created.")
                     unbacked_reasons.append("Tool `gh pr create` failed to create a PR.")
                 else:
-                    # If specific PR number is cited, verify it matches tool result/args
-                    pr_num_m = re.search(r"(?i)\bpr\s+#?(\d+)\b", scan_text)
+                    # If specific PR number is cited, verify it matches tool result/args of creation events
+                    pr_num_m = re.search(r"(?i)\b(?:pr|pull request)\s+#?(\d+)\b", scan_text)
                     if pr_num_m:
                         claimed_num = pr_num_m.group(1)
-                        all_text = " ".join(f"{ev.get('args', '')} {ev.get('result', '')}" for ev in tool_events) + " " + combined_evidence
-                        if claimed_num not in all_text and f"pull/{claimed_num}" not in all_text and f"#{claimed_num}" not in all_text:
+                        create_text = " ".join(f"{ev.get('args', '')} {ev.get('result', '')}" for ev in matching_events)
+                        if not re.search(rf"(?<!\d){re.escape(claimed_num)}(?!\d)", create_text):
                             missing_checks.append(f"Verify PR #{claimed_num} identity via `gh pr view {claimed_num}`.")
                             unbacked_reasons.append(f"Draft cites PR #{claimed_num}, but tool outputs do not corroborate PR #{claimed_num}.")
 

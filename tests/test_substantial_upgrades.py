@@ -87,6 +87,7 @@ class TestDeterministicLedger(unittest.TestCase):
             "No changes pushed to origin.",
             "Changes were not pushed to remote.",
             "Without changes pushed to origin, we stayed local.",
+            "I have not yet pushed changes to origin.",
         ]:
             v_neg = audit_draft_ledger(draft, tool_events=[])
             self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
@@ -105,8 +106,13 @@ class TestDeterministicLedger(unittest.TestCase):
         self.assertIn("gh pr create", v.missing_checks[0])
 
         # Negated PR creation should NOT require PR creation evidence
-        v_neg = audit_draft_ledger("I have not opened a PR yet.", tool_events=[])
-        self.assertTrue(v_neg.passed)
+        for draft in [
+            "I have not opened a PR yet.",
+            "I have not yet opened a PR.",
+            "No PR was opened.",
+        ]:
+            v_neg = audit_draft_ledger(draft, tool_events=[])
+            self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
 
         # Unrelated gh pr list does NOT satisfy pr_created
         v_list = audit_draft_ledger(
@@ -128,6 +134,30 @@ class TestDeterministicLedger(unittest.TestCase):
             tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
         )
         self.assertFalse(v_mismatch.passed)
+
+        # Mismatched "pull request #N" phrasing does NOT satisfy pr_created
+        v_mismatch_pr = audit_draft_ledger(
+            "Opened pull request #99 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_mismatch_pr.passed)
+
+        # Substring prefix (e.g. PR #1 vs pull/15) does NOT satisfy pr_created
+        v_sub = audit_draft_ledger(
+            "Opened PR #1 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_sub.passed)
+
+        # Unrelated tool event containing the number (e.g. --limit 100) does NOT satisfy pr_created
+        v_unrelated = audit_draft_ledger(
+            "Opened PR #100 on GitHub.",
+            tool_events=[
+                {"tool": "terminal", "args": "git log --limit 100", "result": "100 commits"},
+                {"tool": "terminal", "args": "gh pr create", "result": "https://github.com/foo/bar/pull/15"}
+            ]
+        )
+        self.assertFalse(v_unrelated.passed)
 
         # Supported PR creation matching PR number
         v_ok = audit_draft_ledger(
