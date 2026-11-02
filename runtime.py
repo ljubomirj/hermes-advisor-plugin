@@ -1,5 +1,6 @@
 """Advisor runtime — turn tracking, state, review triggers."""
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -578,7 +579,7 @@ class AdvisorRuntime:
             from hermes_constants import get_hermes_home
             db_path = get_hermes_home() / "state.db"
             if db_path.exists():
-                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+                with contextlib.closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT cwd FROM sessions WHERE id = ? LIMIT 1", (session_id,))
                     row = cursor.fetchone()
@@ -667,7 +668,7 @@ class AdvisorRuntime:
             from hermes_constants import get_hermes_home
             db_path = get_hermes_home() / "state.db"
             if db_path.exists():
-                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+                with contextlib.closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         "SELECT role, content FROM messages WHERE session_id = ? AND active = 1 ORDER BY timestamp DESC LIMIT ?",
@@ -918,7 +919,7 @@ class AdvisorRuntime:
             from hermes_constants import get_hermes_home
             db_path = get_hermes_home() / "state.db"
             if db_path.exists():
-                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+                with contextlib.closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         "SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND active = 1 ORDER BY timestamp ASC",

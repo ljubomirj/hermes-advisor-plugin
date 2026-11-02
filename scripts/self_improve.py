@@ -9,6 +9,7 @@ and outputs actionable improvement targets for the autonomous self-improvement l
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -28,7 +29,7 @@ def analyze_recent_performance(lookback_hours: float = 24.0) -> dict:
 
     since_ts = time.time() - (lookback_hours * 3600)
     try:
-        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as conn:
+        with contextlib.closing(sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT session_id, content, timestamp 
