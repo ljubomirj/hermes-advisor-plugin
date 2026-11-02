@@ -82,6 +82,15 @@ class TestDeterministicLedger(unittest.TestCase):
             self.assertEqual(v.rule, "unbacked_assertion")
             self.assertIn("git push", v.missing_checks[0])
 
+        # Negated push statements should NOT require push evidence
+        for draft in [
+            "No changes pushed to origin.",
+            "Changes were not pushed to remote.",
+            "Without changes pushed to origin, we stayed local.",
+        ]:
+            v_neg = audit_draft_ledger(draft, tool_events=[])
+            self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
+
         # Supported push
         v_ok = audit_draft_ledger(
             "Pushed changes to origin.",
@@ -95,6 +104,32 @@ class TestDeterministicLedger(unittest.TestCase):
         self.assertEqual(v.rule, "unbacked_assertion")
         self.assertIn("gh pr create", v.missing_checks[0])
 
+        # Negated PR creation should NOT require PR creation evidence
+        v_neg = audit_draft_ledger("I have not opened a PR yet.", tool_events=[])
+        self.assertTrue(v_neg.passed)
+
+        # Unrelated gh pr list does NOT satisfy pr_created
+        v_list = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr list", "result": "[]"}]
+        )
+        self.assertFalse(v_list.passed)
+
+        # Failed gh pr create does NOT satisfy pr_created
+        v_fail = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create", "result": "GraphQL error: pull request create failed"}]
+        )
+        self.assertFalse(v_fail.passed)
+
+        # Mismatched PR number does NOT satisfy pr_created
+        v_mismatch = audit_draft_ledger(
+            "Opened PR #99 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_mismatch.passed)
+
+        # Supported PR creation matching PR number
         v_ok = audit_draft_ledger(
             "Opened PR #15 on GitHub.",
             tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
@@ -107,6 +142,21 @@ class TestDeterministicLedger(unittest.TestCase):
         self.assertEqual(v.rule, "unbacked_assertion")
         self.assertIn("coderabbit review", v.missing_checks[0])
 
+        # Version check does NOT satisfy review requirement
+        v_ver = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit --version", "result": "coderabbit version 0.1.0"}]
+        )
+        self.assertFalse(v_ver.passed)
+
+        # Failed review does NOT satisfy review requirement
+        v_fail = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Error: review failed: exit_code: 1"}]
+        )
+        self.assertFalse(v_fail.passed)
+
+        # Successful review passes
         v_ok = audit_draft_ledger(
             "CodeRabbit review passed cleanly.",
             tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Review completed. No issues found."}]
