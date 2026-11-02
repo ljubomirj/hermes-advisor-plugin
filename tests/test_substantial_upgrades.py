@@ -65,6 +65,155 @@ class TestDeterministicLedger(unittest.TestCase):
         )
         self.assertTrue(v_ok.passed)
 
+        # Expanded git clean phrasing: 'no uncommitted changes'
+        v_no_uncommitted = audit_draft_ledger("There are no uncommitted changes.", tool_events=[])
+        self.assertFalse(v_no_uncommitted.passed)
+        self.assertEqual(v_no_uncommitted.rule, "unbacked_assertion")
+
+    def test_corroboration_rule_catches_unrun_git_pushed_expanded(self):
+        # Unrun push claim with various phrasings
+        for draft in [
+            "Pushed changes to origin.",
+            "Pushed the branch to remote.",
+            "Changes pushed to origin successfully.",
+        ]:
+            v = audit_draft_ledger(draft, tool_events=[])
+            self.assertFalse(v.passed, f"Expected failure for: {draft}")
+            self.assertEqual(v.rule, "unbacked_assertion")
+            self.assertIn("git push", v.missing_checks[0])
+
+        # Negated push statements should NOT require push evidence
+        for draft in [
+            "No changes pushed to origin.",
+            "Changes were not pushed to remote.",
+            "Without changes pushed to origin, we stayed local.",
+            "I have not yet pushed changes to origin.",
+            "No changes were pushed to origin.",
+            "Nothing was pushed to remote.",
+            "The changes are ready to be pushed to origin.",
+            "Changes have not yet been pushed to origin.",
+        ]:
+            v_neg = audit_draft_ledger(draft, tool_events=[])
+            self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
+
+        # Supported push
+        v_ok = audit_draft_ledger(
+            "Pushed changes to origin.",
+            tool_events=[{"tool": "terminal", "args": "git push origin feat/x", "result": "Everything up-to-date"}]
+        )
+        self.assertTrue(v_ok.passed)
+
+    def test_corroboration_rule_catches_unrun_pr_created(self):
+        v = audit_draft_ledger("Opened PR #15 on GitHub.", tool_events=[])
+        self.assertFalse(v.passed)
+        self.assertEqual(v.rule, "unbacked_assertion")
+        self.assertIn("gh pr create", v.missing_checks[0])
+
+        # Negated PR creation should NOT require PR creation evidence
+        for draft in [
+            "I have not opened a PR yet.",
+            "I have not yet opened a PR.",
+            "No PR was opened.",
+        ]:
+            v_neg = audit_draft_ledger(draft, tool_events=[])
+            self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
+
+        # Unrelated gh pr list does NOT satisfy pr_created
+        v_list = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr list", "result": "[]"}]
+        )
+        self.assertFalse(v_list.passed)
+
+        # Failed gh pr create does NOT satisfy pr_created
+        v_fail = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create", "result": "GraphQL error: pull request create failed"}]
+        )
+        self.assertFalse(v_fail.passed)
+
+        # Mismatched PR number does NOT satisfy pr_created
+        v_mismatch = audit_draft_ledger(
+            "Opened PR #99 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_mismatch.passed)
+
+        # Mismatched "pull request #N" phrasing does NOT satisfy pr_created
+        v_mismatch_pr = audit_draft_ledger(
+            "Opened pull request #99 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_mismatch_pr.passed)
+
+        # Substring prefix (e.g. PR #1 vs pull/15) does NOT satisfy pr_created
+        v_sub = audit_draft_ledger(
+            "Opened PR #1 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertFalse(v_sub.passed)
+
+        # Unrelated tool event containing the number (e.g. --limit 100) does NOT satisfy pr_created
+        v_unrelated = audit_draft_ledger(
+            "Opened PR #100 on GitHub.",
+            tool_events=[
+                {"tool": "terminal", "args": "git log --limit 100", "result": "100 commits"},
+                {"tool": "terminal", "args": "gh pr create", "result": "https://github.com/foo/bar/pull/15"}
+            ]
+        )
+        self.assertFalse(v_unrelated.passed)
+
+        # Supported PR creation matching PR number
+        v_ok = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertTrue(v_ok.passed)
+
+        # Matched claim has no PR number (e.g. 'opened a new PR'), even though draft mentions PR #12 earlier
+        v_diff_context = audit_draft_ledger(
+            "Following feedback on PR #12, I opened a new PR.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertTrue(v_diff_context.passed)
+
+    def test_corroboration_rule_catches_unrun_coderabbit_reviewed(self):
+        v = audit_draft_ledger("CodeRabbit review passed cleanly.", tool_events=[])
+        self.assertFalse(v.passed)
+        self.assertEqual(v.rule, "unbacked_assertion")
+        self.assertIn("coderabbit review", v.missing_checks[0])
+
+        # Version check does NOT satisfy review requirement
+        v_ver = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit --version", "result": "coderabbit version 0.1.0"}]
+        )
+        self.assertFalse(v_ver.passed)
+
+        # Failed review does NOT satisfy review requirement
+        v_fail = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Error: review failed: exit_code: 1"}]
+        )
+        self.assertFalse(v_fail.passed)
+
+        # Successful review with finding notes containing 'failed' in body passes
+        review_with_findings = """Review completed. Findings:
+- In test_auth.py: tests failed to cover the logout route.
+- In login.py: consider using secrets.compare_digest."""
+        v_findings = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": review_with_findings}]
+        )
+        self.assertTrue(v_findings.passed)
+
+        # Successful review passes
+        v_ok = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Review completed. No issues found."}]
+        )
+        self.assertTrue(v_ok.passed)
+
     def test_catches_unacknowledged_tool_errors(self):
         tool_events = [
             {"tool": "terminal", "args": "git push", "result": "error: failed to push some refs, exit_code: 1"}
@@ -123,6 +272,12 @@ class TestActiveProber(unittest.TestCase):
             self.assertTrue(len(probes) >= 1)
             self.assertIn("working tree clean", probes[0].claim)
             self.assertTrue(probes[0].success)
+
+            # Test expanded phrasing 'no uncommitted changes'
+            draft_expanded = "There are no uncommitted changes."
+            probes_expanded = run_active_probes_for_draft(draft_expanded, tmp_dir)
+            self.assertTrue(len(probes_expanded) >= 1)
+            self.assertTrue(probes_expanded[0].success)
 
 
 class TestDialecticAuditor(unittest.TestCase):

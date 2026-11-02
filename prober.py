@@ -123,7 +123,7 @@ def run_active_probes_for_draft(draft: str, cwd: str) -> list[ProbeResult]:
     probes: list[ProbeResult] = []
 
     # 1. Probe git clean status if asserted
-    if re.search(r"(?i)\b(working tree (is )?clean|git status clean|clean working tree)\b", draft):
+    if re.search(r"(?i)\b(working tree (is )?clean|git status clean|clean working tree|git tree (is )?clean|no uncommitted changes)\b", draft):
         res = probe_git_clean_status(cwd)
         if res:
             probes.append(res)

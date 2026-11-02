@@ -23,26 +23,61 @@ _CORROBORATION_RULES = [
     {
         "name": "test_suite_passed",
         "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )\b(all \d+ tests? pass(ed)?|test suite passes?|tests? pass(ed)?)\b"),
-        "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\bnpm (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
+        "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\b(pnpm|bun|yarn|npm) (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
         "suggested_command": "Run your test suite (e.g. pytest or unittest) before asserting tests pass.",
     },
     {
         "name": "clean_git_tree",
-        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )\b(working tree (is )?clean|clean working tree|git status clean)\b"),
+        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )\b(working tree (is )?clean|clean working tree|git status clean|git tree (is )?clean|no uncommitted changes)\b"),
         "required_tool_patterns": [r"git status", r"git diff", r"git -C .* status"],
         "suggested_command": "Run `git status` to verify the working tree is clean.",
     },
     {
         "name": "git_pushed",
-        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )(?<!not been )(?<!never been )(?<!yet to be )\b(pushed to (origin|remote|github)|(?:i|we) (?:ran|did) git push)\b"),
+        "pattern": re.compile(
+            r"(?i)"
+            r"(?<!not )(?<!never )(?<!n't )(?<!yet )(?<!no )(?<!nothing )(?<!without )(?<!neither )"
+            r"(?<!ready to be )(?<!going to be )(?<!yet to be )(?<!to be )"
+            r"(?<!not been )(?<!never been )(?<!yet been )"
+            r"(?<!were )(?<!was )(?<!been )(?<!be )(?<!changes )(?<!commits )(?<!branch )(?<!branches )"
+            r"\b(?:"
+            r"(?:pushed\s+(?:to\s+(?:the\s+)?(?:origin|remote|github)|(?:the\s+|all\s+)?(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|updates?)\s+to\s+(?:the\s+)?(?:origin|remote|github)))"
+            r"|(?<!no )(?<!nothing )(?<!not )(?<!n't )(?<!never )(?<!without )(?<!neither )(?<!yet )"
+            r"(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|it)\s+"
+            r"(?:(?:have|has)\s+been\s+|were\s+|was\s+)?"
+            r"pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
+            r"|(?:i|we)\s+(?:ran|did)\s+git\s+push"
+            r")\b"
+        ),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
         "suggested_command": "Run `git push` before asserting changes were pushed.",
+    },
+    {
+        "name": "pr_created",
+        "pattern": re.compile(
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )(?<!not )(?<!yet )(?<!n't )(?<!never )(?<!haven't )(?<!hasn't )(?<!hadn't )(?<!without )(?<!yet to )"
+            r"\b(?:(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pr(?: #?\d+)?"
+            r"|(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pull request(?: #?\d+)?"
+            r"|(?<!no )(?<!not )(?<!n't )(?<!never )(?<!yet )pr #?\d+\s+(?:was |is )?(?:opened|created))\b"
+        ),
+        "required_tool_patterns": [r"\bgh\s+pr\s+create\b"],
+        "suggested_command": "Run `gh pr create` before claiming a PR was created or opened.",
     },
     {
         "name": "pr_merged",
         "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )\b(merged pr #?\d+|pr #?\d+ (was |is )?merged)\b"),
         "required_tool_patterns": [r"gh pr merge", r"git merge"],
         "suggested_command": "Verify PR merge via `gh pr merge` or `gh pr view`.",
+    },
+    {
+        "name": "coderabbit_reviewed",
+        "pattern": re.compile(
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!run )"
+            r"\b(?:coderabbit\s+(?:review\s+)?(?:passed|clean|completed|finished|approved|reported)"
+            r"|(?:ran|executed)\s+coderabbit\s+review)\b"
+        ),
+        "required_tool_patterns": [r"\bcoderabbit\s+review\b"],
+        "suggested_command": "Run `coderabbit review` before asserting CodeRabbit review completed or passed.",
     },
 ]
 
@@ -52,6 +87,26 @@ _TOOL_FAILURE_PATTERNS = [
     re.compile(r"\bexit code\s+([1-9]\d*)\b"),
     re.compile(r"\b(Permission denied|command not found|SyntaxError)\b|Traceback \(most recent call last\)"),
 ]
+
+
+def _result_indicates_failure(res_str: str) -> bool:
+    """Check if tool output indicates a real command failure."""
+    if not res_str:
+        return False
+    for err_pat in _TOOL_FAILURE_PATTERNS:
+        if err_pat.search(res_str):
+            return True
+    for line in res_str.splitlines():
+        line_clean = line.strip().lower()
+        if (
+            line_clean.startswith("error:")
+            or line_clean.startswith("fatal:")
+            or "pull request create failed" in line_clean
+            or "command failed" in line_clean
+            or "review failed" in line_clean
+        ):
+            return True
+    return False
 
 
 class LedgerVerdict:
@@ -118,17 +173,52 @@ def audit_draft_ledger(
     missing_checks = []
     unbacked_reasons = []
     for rule in _CORROBORATION_RULES:
-        if rule["pattern"].search(scan_text):
+        rule_match = rule["pattern"].search(scan_text)
+        if rule_match:
             # Check if any required pattern was executed in tool events
-            matched = any(
-                re.search(req_pat, combined_evidence, re.IGNORECASE)
-                for req_pat in rule["required_tool_patterns"]
-            )
-            if not matched:
-                missing_checks.append(rule["suggested_command"])
-                unbacked_reasons.append(
-                    f"Claim matching '{rule['name']}' has no supporting tool execution in this turn."
+            matching_events = [
+                ev for ev in tool_events
+                if any(
+                    re.search(req_pat, f"{ev.get('tool', '')} {ev.get('args', '')}", re.IGNORECASE)
+                    for req_pat in rule["required_tool_patterns"]
                 )
+            ]
+            if not matching_events:
+                # Also check combined evidence (e.g. active probe notes or caller evidence)
+                matched_evidence = any(
+                    re.search(req_pat, combined_evidence, re.IGNORECASE)
+                    for req_pat in rule["required_tool_patterns"]
+                )
+                if not matched_evidence:
+                    missing_checks.append(rule["suggested_command"])
+                    unbacked_reasons.append(
+                        f"Claim matching '{rule['name']}' has no supporting tool execution in this turn."
+                    )
+                    continue
+
+            # Deep verification for specific rules
+            if rule["name"] == "coderabbit_reviewed" and matching_events:
+                latest_rev = matching_events[-1]
+                res_str = str(latest_rev.get("result", ""))
+                if _result_indicates_failure(res_str):
+                    missing_checks.append("Resolve CodeRabbit errors before claiming review passed.")
+                    unbacked_reasons.append("CodeRabbit review command reported an error or failure.")
+
+            elif rule["name"] == "pr_created" and matching_events:
+                latest_create = matching_events[-1]
+                res_str = str(latest_create.get("result", ""))
+                if _result_indicates_failure(res_str):
+                    missing_checks.append("Verify `gh pr create` succeeded before claiming a PR was created.")
+                    unbacked_reasons.append("Tool `gh pr create` failed to create a PR.")
+                else:
+                    # If specific PR number is cited in the matched claim, verify it matches creation events
+                    pr_num_m = re.search(r"(?i)\b(?:pr|pull request)\s+#?(\d+)\b", rule_match.group(0))
+                    if pr_num_m:
+                        claimed_num = pr_num_m.group(1)
+                        create_text = " ".join(f"{ev.get('args', '')} {ev.get('result', '')}" for ev in matching_events)
+                        if not re.search(rf"(?<!\d){re.escape(claimed_num)}(?!\d)", create_text):
+                            missing_checks.append(f"Verify PR #{claimed_num} identity via `gh pr view {claimed_num}`.")
+                            unbacked_reasons.append(f"Draft cites PR #{claimed_num}, but tool outputs do not corroborate PR #{claimed_num}.")
 
     if missing_checks:
         return LedgerVerdict(
