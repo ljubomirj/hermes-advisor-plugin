@@ -23,26 +23,52 @@ _CORROBORATION_RULES = [
     {
         "name": "test_suite_passed",
         "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )\b(all \d+ tests? pass(ed)?|test suite passes?|tests? pass(ed)?)\b"),
-        "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\bnpm (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
+        "required_tool_patterns": [r"\bunittest\b", r"\bpytest\b", r"\b(pnpm|bun|yarn|npm) (run )?test\b", r"\bcargo test\b", r"\bgo test\b", r"\bmake test\b", r"\btox\b"],
         "suggested_command": "Run your test suite (e.g. pytest or unittest) before asserting tests pass.",
     },
     {
         "name": "clean_git_tree",
-        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )\b(working tree (is )?clean|clean working tree|git status clean)\b"),
+        "pattern": re.compile(r"(?i)(?<!make sure )(?<!ensure )(?<!verify )\b(working tree (is )?clean|clean working tree|git status clean|git tree (is )?clean|no uncommitted changes)\b"),
         "required_tool_patterns": [r"git status", r"git diff", r"git -C .* status"],
         "suggested_command": "Run `git status` to verify the working tree is clean.",
     },
     {
         "name": "git_pushed",
-        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )(?<!not been )(?<!never been )(?<!yet to be )\b(pushed to (origin|remote|github)|(?:i|we) (?:ran|did) git push)\b"),
+        "pattern": re.compile(
+            r"(?i)(?<!not )(?<!n't )(?<!never )(?<!not been )(?<!never been )(?<!yet to be )"
+            r"\b(?:pushed\s+(?:the\s+|all\s+)?(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|updates?)?\s*to\s+(?:the\s+)?(?:origin|remote|github)"
+            r"|(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?)\s+(?:have been |were |was )?pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
+            r"|(?:i|we)\s+(?:ran|did)\s+git\s+push)\b"
+        ),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
         "suggested_command": "Run `git push` before asserting changes were pushed.",
+    },
+    {
+        "name": "pr_created",
+        "pattern": re.compile(
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )"
+            r"\b(?:(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pr(?: #?\d+)?"
+            r"|(?:opened|created|submitted)\s+(?:a\s+|the\s+)?(?:new\s+|draft\s+)?pull request(?: #?\d+)?"
+            r"|pr #?\d+\s+(?:was |is )?(?:opened|created))\b"
+        ),
+        "required_tool_patterns": [r"gh pr create", r"gh pr view", r"gh pr list"],
+        "suggested_command": "Run `gh pr create` before claiming a PR was created or opened.",
     },
     {
         "name": "pr_merged",
         "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )\b(merged pr #?\d+|pr #?\d+ (was |is )?merged)\b"),
         "required_tool_patterns": [r"gh pr merge", r"git merge"],
         "suggested_command": "Verify PR merge via `gh pr merge` or `gh pr view`.",
+    },
+    {
+        "name": "coderabbit_reviewed",
+        "pattern": re.compile(
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!run )"
+            r"\b(?:coderabbit\s+(?:review\s+)?(?:passed|clean|completed|finished|approved|reported)"
+            r"|(?:ran|executed)\s+coderabbit\s+review)\b"
+        ),
+        "required_tool_patterns": [r"\bcoderabbit\b"],
+        "suggested_command": "Run `coderabbit review` before asserting CodeRabbit review completed or passed.",
     },
 ]
 

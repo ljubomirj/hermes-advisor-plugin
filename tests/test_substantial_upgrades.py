@@ -65,6 +65,54 @@ class TestDeterministicLedger(unittest.TestCase):
         )
         self.assertTrue(v_ok.passed)
 
+        # Expanded git clean phrasing: 'no uncommitted changes'
+        v_no_uncommitted = audit_draft_ledger("There are no uncommitted changes.", tool_events=[])
+        self.assertFalse(v_no_uncommitted.passed)
+        self.assertEqual(v_no_uncommitted.rule, "unbacked_assertion")
+
+    def test_corroboration_rule_catches_unrun_git_pushed_expanded(self):
+        # Unrun push claim with various phrasings
+        for draft in [
+            "Pushed changes to origin.",
+            "Pushed the branch to remote.",
+            "Changes pushed to origin successfully.",
+        ]:
+            v = audit_draft_ledger(draft, tool_events=[])
+            self.assertFalse(v.passed, f"Expected failure for: {draft}")
+            self.assertEqual(v.rule, "unbacked_assertion")
+            self.assertIn("git push", v.missing_checks[0])
+
+        # Supported push
+        v_ok = audit_draft_ledger(
+            "Pushed changes to origin.",
+            tool_events=[{"tool": "terminal", "args": "git push origin feat/x", "result": "Everything up-to-date"}]
+        )
+        self.assertTrue(v_ok.passed)
+
+    def test_corroboration_rule_catches_unrun_pr_created(self):
+        v = audit_draft_ledger("Opened PR #15 on GitHub.", tool_events=[])
+        self.assertFalse(v.passed)
+        self.assertEqual(v.rule, "unbacked_assertion")
+        self.assertIn("gh pr create", v.missing_checks[0])
+
+        v_ok = audit_draft_ledger(
+            "Opened PR #15 on GitHub.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertTrue(v_ok.passed)
+
+    def test_corroboration_rule_catches_unrun_coderabbit_reviewed(self):
+        v = audit_draft_ledger("CodeRabbit review passed cleanly.", tool_events=[])
+        self.assertFalse(v.passed)
+        self.assertEqual(v.rule, "unbacked_assertion")
+        self.assertIn("coderabbit review", v.missing_checks[0])
+
+        v_ok = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Review completed. No issues found."}]
+        )
+        self.assertTrue(v_ok.passed)
+
     def test_catches_unacknowledged_tool_errors(self):
         tool_events = [
             {"tool": "terminal", "args": "git push", "result": "error: failed to push some refs, exit_code: 1"}
@@ -123,6 +171,12 @@ class TestActiveProber(unittest.TestCase):
             self.assertTrue(len(probes) >= 1)
             self.assertIn("working tree clean", probes[0].claim)
             self.assertTrue(probes[0].success)
+
+            # Test expanded phrasing 'no uncommitted changes'
+            draft_expanded = "There are no uncommitted changes."
+            probes_expanded = run_active_probes_for_draft(draft_expanded, tmp_dir)
+            self.assertTrue(len(probes_expanded) >= 1)
+            self.assertTrue(probes_expanded[0].success)
 
 
 class TestDialecticAuditor(unittest.TestCase):
