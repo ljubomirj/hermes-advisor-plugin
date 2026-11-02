@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Extract a benchmark dataset of historical verify_turn scenarios from state.db."""
 
+import contextlib
 import json
 import os
 import re
@@ -12,7 +13,7 @@ OUTPUT_PATH = Path(__file__).parent / "dataset.json"
 
 
 def extract_benchmark_cases(limit_per_session=15):
-    with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as conn:
+    with contextlib.closing(sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)) as conn:
         c = conn.cursor()
         # Find sessions with significant verify_turn usage
         c.execute("""
