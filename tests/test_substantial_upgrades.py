@@ -88,6 +88,10 @@ class TestDeterministicLedger(unittest.TestCase):
             "Changes were not pushed to remote.",
             "Without changes pushed to origin, we stayed local.",
             "I have not yet pushed changes to origin.",
+            "No changes were pushed to origin.",
+            "Nothing was pushed to remote.",
+            "The changes are ready to be pushed to origin.",
+            "Changes have not yet been pushed to origin.",
         ]:
             v_neg = audit_draft_ledger(draft, tool_events=[])
             self.assertTrue(v_neg.passed, f"Expected pass for negated claim: {draft}")
@@ -166,6 +170,13 @@ class TestDeterministicLedger(unittest.TestCase):
         )
         self.assertTrue(v_ok.passed)
 
+        # Matched claim has no PR number (e.g. 'opened a new PR'), even though draft mentions PR #12 earlier
+        v_diff_context = audit_draft_ledger(
+            "Following feedback on PR #12, I opened a new PR.",
+            tool_events=[{"tool": "terminal", "args": "gh pr create --title 'x' --body 'y'", "result": "https://github.com/foo/bar/pull/15"}]
+        )
+        self.assertTrue(v_diff_context.passed)
+
     def test_corroboration_rule_catches_unrun_coderabbit_reviewed(self):
         v = audit_draft_ledger("CodeRabbit review passed cleanly.", tool_events=[])
         self.assertFalse(v.passed)
@@ -185,6 +196,16 @@ class TestDeterministicLedger(unittest.TestCase):
             tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": "Error: review failed: exit_code: 1"}]
         )
         self.assertFalse(v_fail.passed)
+
+        # Successful review with finding notes containing 'failed' in body passes
+        review_with_findings = """Review completed. Findings:
+- In test_auth.py: tests failed to cover the logout route.
+- In login.py: consider using secrets.compare_digest."""
+        v_findings = audit_draft_ledger(
+            "CodeRabbit review passed cleanly.",
+            tool_events=[{"tool": "terminal", "args": "coderabbit review --agent", "result": review_with_findings}]
+        )
+        self.assertTrue(v_findings.passed)
 
         # Successful review passes
         v_ok = audit_draft_ledger(

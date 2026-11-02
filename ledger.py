@@ -35,10 +35,19 @@ _CORROBORATION_RULES = [
     {
         "name": "git_pushed",
         "pattern": re.compile(
-            r"(?i)(?<!not )(?<!n't )(?<!never )(?<!yet )(?<!not been )(?<!never been )(?<!yet to be )(?<!no )(?<!zero )(?<!without )(?<!changes )(?<!commits )(?<!branch )(?<!branches )"
-            r"\b(?:pushed\s+(?:to\s+(?:the\s+)?(?:origin|remote|github)|(?:the\s+|all\s+)?(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|updates?)\s+to\s+(?:the\s+)?(?:origin|remote|github))"
-            r"|(?<!no )(?<!zero )(?<!not )(?<!n't )(?<!never )(?<!yet )(?<!without )(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?)\s+(?:have been |were |was )?pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
-            r"|(?:i|we)\s+(?:ran|did)\s+git\s+push)\b"
+            r"(?i)"
+            r"(?<!not )(?<!never )(?<!n't )(?<!yet )(?<!no )(?<!nothing )(?<!without )(?<!neither )"
+            r"(?<!ready to be )(?<!going to be )(?<!yet to be )(?<!to be )"
+            r"(?<!not been )(?<!never been )(?<!yet been )"
+            r"(?<!were )(?<!was )(?<!been )(?<!be )(?<!changes )(?<!commits )(?<!branch )(?<!branches )"
+            r"\b(?:"
+            r"(?:pushed\s+(?:to\s+(?:the\s+)?(?:origin|remote|github)|(?:the\s+|all\s+)?(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|updates?)\s+to\s+(?:the\s+)?(?:origin|remote|github)))"
+            r"|(?<!no )(?<!nothing )(?<!not )(?<!n't )(?<!never )(?<!without )(?<!neither )(?<!yet )"
+            r"(?:changes?|branch(?:es)?(?:\s+[\w\-\/\.]+)?|commits?|it)\s+"
+            r"(?:(?:have|has)\s+been\s+|were\s+|was\s+)?"
+            r"pushed\s+to\s+(?:the\s+)?(?:origin|remote|github)"
+            r"|(?:i|we)\s+(?:ran|did)\s+git\s+push"
+            r")\b"
         ),
         "required_tool_patterns": [r"git push", r"push -u origin", r"push origin"],
         "suggested_command": "Run `git push` before asserting changes were pushed.",
@@ -78,6 +87,26 @@ _TOOL_FAILURE_PATTERNS = [
     re.compile(r"\bexit code\s+([1-9]\d*)\b"),
     re.compile(r"\b(Permission denied|command not found|SyntaxError)\b|Traceback \(most recent call last\)"),
 ]
+
+
+def _result_indicates_failure(res_str: str) -> bool:
+    """Check if tool output indicates a real command failure."""
+    if not res_str:
+        return False
+    for err_pat in _TOOL_FAILURE_PATTERNS:
+        if err_pat.search(res_str):
+            return True
+    for line in res_str.splitlines():
+        line_clean = line.strip().lower()
+        if (
+            line_clean.startswith("error:")
+            or line_clean.startswith("fatal:")
+            or "pull request create failed" in line_clean
+            or "command failed" in line_clean
+            or "review failed" in line_clean
+        ):
+            return True
+    return False
 
 
 class LedgerVerdict:
@@ -144,7 +173,8 @@ def audit_draft_ledger(
     missing_checks = []
     unbacked_reasons = []
     for rule in _CORROBORATION_RULES:
-        if rule["pattern"].search(scan_text):
+        rule_match = rule["pattern"].search(scan_text)
+        if rule_match:
             # Check if any required pattern was executed in tool events
             matching_events = [
                 ev for ev in tool_events
@@ -170,19 +200,19 @@ def audit_draft_ledger(
             if rule["name"] == "coderabbit_reviewed" and matching_events:
                 latest_rev = matching_events[-1]
                 res_str = str(latest_rev.get("result", ""))
-                if any(err_pat.search(res_str) for err_pat in _TOOL_FAILURE_PATTERNS) or "failed" in res_str.lower():
+                if _result_indicates_failure(res_str):
                     missing_checks.append("Resolve CodeRabbit errors before claiming review passed.")
                     unbacked_reasons.append("CodeRabbit review command reported an error or failure.")
 
             elif rule["name"] == "pr_created" and matching_events:
                 latest_create = matching_events[-1]
                 res_str = str(latest_create.get("result", ""))
-                if any(err_pat.search(res_str) for err_pat in _TOOL_FAILURE_PATTERNS) or "failed" in res_str.lower():
+                if _result_indicates_failure(res_str):
                     missing_checks.append("Verify `gh pr create` succeeded before claiming a PR was created.")
                     unbacked_reasons.append("Tool `gh pr create` failed to create a PR.")
                 else:
-                    # If specific PR number is cited, verify it matches tool result/args of creation events
-                    pr_num_m = re.search(r"(?i)\b(?:pr|pull request)\s+#?(\d+)\b", scan_text)
+                    # If specific PR number is cited in the matched claim, verify it matches creation events
+                    pr_num_m = re.search(r"(?i)\b(?:pr|pull request)\s+#?(\d+)\b", rule_match.group(0))
                     if pr_num_m:
                         claimed_num = pr_num_m.group(1)
                         create_text = " ".join(f"{ev.get('args', '')} {ev.get('result', '')}" for ev in matching_events)
@@ -199,7 +229,7 @@ def audit_draft_ledger(
         )
 
     # 3. Check for severe unhandled tool errors if draft claims unqualified success
-    claims_clean_success = re.search(r"(?i)\b(all clean|succeeded|done successfully|everything works?|healthy|cleanly|passed|review passed)\b", scan_text)
+    claims_clean_success = re.search(r"(?i)\b(all clean|succeeded|done successfully|everything works?|healthy)\b", scan_text)
     if claims_clean_success and tool_events:
         # Check only the final execution result per tool to avoid flagging retried/recovered commands
         latest_event_per_tool = {}
