@@ -79,6 +79,48 @@ def probe_git_clean_status(cwd: str) -> ProbeResult | None:
     return None
 
 
+def probe_git_branch(cwd: str) -> ProbeResult | None:
+    """Safely probe current git branch."""
+    if not os.path.isdir(os.path.join(cwd, ".git")):
+        try:
+            res = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                text=True,
+                timeout=PROBE_TIMEOUT_SECONDS,
+            )
+            if res.returncode != 0:
+                return None
+        except Exception:
+            return None
+
+    try:
+        proc = subprocess.run(
+            ["git", "--no-optional-locks", "-C", cwd, "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_SECONDS,
+        )
+        if proc.returncode == 0:
+            branch = proc.stdout.strip()
+            return ProbeResult(
+                executed=True,
+                success=bool(branch),
+                claim=f"current git branch: {branch}",
+                command=f"git -C {cwd} branch --show-current",
+                output=branch,
+            )
+    except Exception as e:
+        return ProbeResult(
+            executed=False,
+            success=False,
+            claim="current git branch",
+            command=f"git -C {cwd} branch --show-current",
+            output=f"Probe inconclusive: {e}",
+        )
+    return None
+
+
 def probe_file_existence(path: str) -> ProbeResult:
     """Safely probe if a file exists on disk."""
     exists = os.path.exists(path)
@@ -133,5 +175,26 @@ def run_active_probes_for_draft(draft: str, cwd: str) -> list[ProbeResult]:
         res = probe_service_running("ai.hermes.gateway")
         if res:
             probes.append(res)
+
+    # 3. Probe git branch if claimed
+    branch_m = re.search(r"(?i)\b(?:on|switched to|checked out|on feature|on branch)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)\b", draft)
+    if branch_m:
+        claimed_branch = branch_m.group(1).strip()
+        if claimed_branch.lower() not in {"the", "a", "an", "our", "this", "that", "clean", "dirty", "main", "master"}:
+            res = probe_git_branch(cwd)
+            if res and res.executed:
+                res.success = (res.output == claimed_branch)
+                res.claim = f"on branch {claimed_branch}"
+                probes.append(res)
+
+    # 4. Probe file existence if explicit file creation or existence is asserted with a file path
+    file_matches = re.findall(
+        r"(?i)(?:created|written|saved|added|exists?)\s+(?:in|to|at)?\s*[`'\"]?([/~][a-zA-Z0-9_\-./]+(?:\.[a-zA-Z0-9_\-]+))[`'\"]?",
+        draft,
+    )
+    for p in file_matches:
+        expanded_path = os.path.expanduser(p)
+        if os.path.isabs(expanded_path):
+            probes.append(probe_file_existence(expanded_path))
 
     return probes

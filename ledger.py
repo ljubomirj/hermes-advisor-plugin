@@ -65,9 +65,32 @@ _CORROBORATION_RULES = [
     },
     {
         "name": "pr_merged",
-        "pattern": re.compile(r"(?i)(?<!not )(?<!n't )(?<!never )\b(merged pr #?\d+|pr #?\d+ (was |is )?merged)\b"),
-        "required_tool_patterns": [r"gh pr merge", r"git merge"],
+        "pattern": re.compile(
+            r"(?i)(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )(?<!not )(?<!n't )(?<!never )(?<!without )"
+            r"\b(?:(?:merged|merging)\s+(?:the\s+)?(?:new\s+|draft\s+)?(?:pr|pull request)(?:\s+#?\d+)?"
+            r"|(?:pr|pull request)\s+#?\d+\s+(?:was\s+|is\s+)?merged"
+            r"|(?:automatically\s+)?merged\s+the\s+pr\b"
+            r")\b"
+        ),
+        "required_tool_patterns": [r"\bgh\s+pr\s+merge\b", r"\bgit\s+merge\b", r"\bgit\s+-C\s+.*?\s+merge\b"],
         "suggested_command": "Verify PR merge via `gh pr merge` or `gh pr view`.",
+    },
+    {
+        "name": "git_committed",
+        "pattern": re.compile(
+            r"(?i)"
+            r"(?<!make sure )(?<!ensure )(?<!verify )(?<!if )(?<!to )(?<!will )"
+            r"(?<!not )(?<!n't )(?<!never )(?<!yet )(?<!no )(?<!without )(?<!neither )"
+            r"(?<!ready to be )(?<!going to be )(?<!yet to be )"
+            r"\b(?:"
+            r"(?:committed\s+(?:the\s+|all\s+)?(?:changes?|diffs?|files?|updates?|fixes?|code)\b)"
+            r"|(?:committed\s+to\s+(?:the\s+)?(?:branch\s+)?[a-zA-Z0-9_\-\.\/]+)"
+            r"|(?:created\s+(?:a\s+|the\s+)?commit\b)"
+            r"|(?:changes?\s+(?:have\s+been\s+|were\s+)?committed\b)"
+            r")\b"
+        ),
+        "required_tool_patterns": [r"\bgit\s+commit\b", r"\bgit\s+-C\s+.*?\s+commit\b"],
+        "suggested_command": "Run `git commit` before claiming changes were committed.",
     },
     {
         "name": "coderabbit_reviewed",
@@ -167,7 +190,7 @@ def audit_draft_ledger(
     combined_tool_text = " ".join(
         f"{ev.get('tool', '')} {ev.get('args', '')}" for ev in tool_events
     )
-    combined_evidence = combined_tool_text.lower()
+    combined_evidence = f"{combined_tool_text} {evidence or ''}".lower()
 
     # 2. Check corroboration rules
     missing_checks = []
@@ -219,6 +242,42 @@ def audit_draft_ledger(
                         if not re.search(rf"(?<!\d){re.escape(claimed_num)}(?!\d)", create_text):
                             missing_checks.append(f"Verify PR #{claimed_num} identity via `gh pr view {claimed_num}`.")
                             unbacked_reasons.append(f"Draft cites PR #{claimed_num}, but tool outputs do not corroborate PR #{claimed_num}.")
+
+            elif rule["name"] == "pr_merged" and matching_events:
+                latest_merge = matching_events[-1]
+                res_str = str(latest_merge.get("result", ""))
+                if _result_indicates_failure(res_str):
+                    missing_checks.append("Verify `gh pr merge` succeeded before claiming a PR was merged.")
+                    unbacked_reasons.append("Tool `gh pr merge` or `git merge` failed to merge.")
+                else:
+                    pr_num_m = re.search(r"(?i)\b(?:pr|pull request)\s+#?(\d+)\b", rule_match.group(0))
+                    if pr_num_m:
+                        claimed_num = pr_num_m.group(1)
+                        merge_text = " ".join(f"{ev.get('args', '')} {ev.get('result', '')}" for ev in matching_events)
+                        if not re.search(rf"(?<!\d){re.escape(claimed_num)}(?!\d)", merge_text):
+                            missing_checks.append(f"Verify PR #{claimed_num} merge via `gh pr view {claimed_num}`.")
+                            unbacked_reasons.append(f"Draft cites merged PR #{claimed_num}, but tool outputs do not corroborate PR #{claimed_num}.")
+
+            elif rule["name"] == "git_committed" and matching_events:
+                latest_commit = matching_events[-1]
+                res_str = str(latest_commit.get("result", ""))
+                if _result_indicates_failure(res_str) or "nothing to commit" in res_str.lower():
+                    missing_checks.append("Verify `git commit` created a commit before asserting changes were committed.")
+                    unbacked_reasons.append("Tool `git commit` failed or reported nothing to commit.")
+
+            elif rule["name"] == "git_pushed" and matching_events:
+                latest_push = matching_events[-1]
+                res_str = str(latest_push.get("result", ""))
+                if _result_indicates_failure(res_str):
+                    missing_checks.append("Verify `git push` succeeded before claiming changes were pushed.")
+                    unbacked_reasons.append("Tool `git push` failed to push changes.")
+
+            elif rule["name"] == "test_suite_passed" and matching_events:
+                latest_test = matching_events[-1]
+                res_str = str(latest_test.get("result", ""))
+                if _result_indicates_failure(res_str) or re.search(r"(?i)\b(FAILED|failures=\d+|errors=\d+)\b", res_str):
+                    missing_checks.append("Fix failing tests before claiming the test suite passed.")
+                    unbacked_reasons.append("Test runner reported failures or errors.")
 
     if missing_checks:
         return LedgerVerdict(
