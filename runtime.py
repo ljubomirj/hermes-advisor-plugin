@@ -841,7 +841,15 @@ class AdvisorRuntime:
                 kwargs["model"] = self.state.model
             if self.state.provider:
                 kwargs["provider"] = self.state.provider
-            result = self.ctx.llm.complete(**kwargs)
+            try:
+                result = self.ctx.llm.complete(**kwargs)
+            except Exception as e:
+                if "cannot override the provider" in str(e).lower() and "provider" in kwargs:
+                    logger.warning("Advisor: provider override rejected by host, falling back to primary provider")
+                    kwargs.pop("provider", None)
+                    result = self.ctx.llm.complete(**kwargs)
+                else:
+                    raise
             raw = (result.text or "").strip()
             import json, re
             parsed = None
